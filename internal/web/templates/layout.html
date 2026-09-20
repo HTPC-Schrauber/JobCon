@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - JobCon</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+    <header class="navbar">
+        <div class="brand">
+            <span>⚡ JobCon</span>
+            <span class="tag">Engine</span>
+        </div>
+        <nav class="nav-links">
+            {{if .User}}
+                <a href="/" class="{{if eq .CurrentTab "dashboard"}}active{{end}}">Jobs</a>
+                <a href="/executions" class="{{if eq .CurrentTab "executions"}}active{{end}}">Ausführungen</a>
+                {{if eq .User.Role "admin"}}
+                    <a href="/settings/servers" class="{{if eq .CurrentTab "settings"}}active{{end}}">Einstellungen</a>
+                {{end}}
+                <span style="color: var(--text-muted); margin-left: 12px;">|</span>
+                <span style="color: #cbd5e1; font-size: 13px;">{{.User.DisplayName}} ({{.User.Role}})</span>
+                <form action="/logout" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-secondary btn-sm">Abmelden</button>
+                </form>
+            {{else}}
+                <a href="/login">Anmelden</a>
+            {{end}}
+        </nav>
+    </header>
+
+    <main class="container">
+        {{template "content" .}}
+    </main>
+</body>
+</html>

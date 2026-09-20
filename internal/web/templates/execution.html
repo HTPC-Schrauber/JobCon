@@ -1,0 +1,127 @@
+{{define "content"}}
+<div style="margin-bottom: 16px;">
+    <a href="/" style="color: var(--text-muted); font-size: 13px;">← Zurück zum Dashboard</a>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+                <h1 style="font-size: 20px; font-weight: 700; color: #fff;">{{.Exec.JobName}}</h1>
+                <span id="statusBadge" class="badge {{if eq .Exec.Status "running"}}badge-running{{else if eq .Exec.Status "success"}}badge-success{{else if eq .Exec.Status "failed"}}badge-danger{{else}}badge-neutral{{end}}">
+                    {{.Exec.Status}}
+                </span>
+                <span class="badge badge-neutral">{{.Exec.Action}}</span>
+                <span class="badge badge-neutral">v{{.Exec.Version}}</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
+                Execution-ID: {{.Exec.ID}} | Gestartet: {{.Exec.StartedAt.Format "02.01.2006 15:04:05"}} | Durch: {{.Exec.TriggeredBy}}
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: center;">
+            {{if eq .Exec.Status "running"}}
+                <button id="abortBtn" class="btn btn-danger" onclick="abortExecution('{{.Exec.ID}}')">
+                    🛑 Ausführung Abbrechen
+                </button>
+            {{end}}
+            <a href="/api/v1/executions/{{.Exec.ID}}/logs?format=raw" download="{{.Exec.ID}}.log" class="btn btn-secondary">
+                💾 Log Herunterladen
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="terminal-window">
+    <div class="terminal-bar">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+            <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
+            <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+            <span style="font-family: var(--mono); font-size: 12px; color: var(--text-muted); margin-left: 8px;">
+                Console: {{.Exec.ID}}
+            </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-muted); margin: 0;">
+                <input type="checkbox" id="autoScroll" checked> Auto-Scroll
+            </label>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('consoleOutput').innerText=''">
+                Leeren
+            </button>
+        </div>
+    </div>
+    <div id="consoleOutput" class="terminal-content">Lade Konsolenausgabe...</div>
+</div>
+
+<script>
+const execId = "{{.Exec.ID}}";
+const initialStatus = "{{.Exec.Status}}";
+const outputEl = document.getElementById("consoleOutput");
+const autoScrollEl = document.getElementById("autoScroll");
+
+function appendLine(text) {
+    if (outputEl.innerText === "Lade Konsolenausgabe...") {
+        outputEl.innerText = "";
+    }
+    outputEl.appendChild(document.createTextNode(text + "\n"));
+    if (autoScrollEl.checked) {
+        outputEl.scrollTop = outputEl.scrollHeight;
+    }
+}
+
+function connectSSE() {
+    outputEl.innerText = "";
+    const evtSource = new EventSource("/api/v1/executions/" + execId + "/logs");
+
+    evtSource.onmessage = function(e) {
+        appendLine(e.data);
+    };
+
+    evtSource.addEventListener("end", function() {
+        evtSource.close();
+        appendLine("\n[JobCon] --- Ausführung beendet ---");
+        // Reload execution metadata to update badge
+        fetch("/api/v1/executions/" + execId)
+            .then(res => res.json())
+            .then(data => {
+                const badge = document.getElementById("statusBadge");
+                badge.innerText = data.status;
+                badge.className = "badge " + (data.status === "success" ? "badge-success" : "badge-danger");
+                const abortBtn = document.getElementById("abortBtn");
+                if (abortBtn) abortBtn.style.display = "none";
+            });
+    });
+
+    evtSource.onerror = function() {
+        evtSource.close();
+    };
+}
+
+if (initialStatus === "running" || initialStatus === "pending") {
+    connectSSE();
+} else {
+    // Finished execution: load full log
+    fetch("/api/v1/executions/" + execId + "/logs?format=raw")
+        .then(res => res.text())
+        .then(text => {
+            outputEl.innerText = text;
+            if (autoScrollEl.checked) {
+                outputEl.scrollTop = outputEl.scrollHeight;
+            }
+        })
+        .catch(err => {
+            outputEl.innerText = "[Fehler beim Laden des Logs: " + err + "]";
+        });
+}
+
+function abortExecution(id) {
+    if (!confirm("Möchten Sie diese Ausführung wirklich abbrechen?")) return;
+    fetch("/api/v1/executions/" + id + "/abort", { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            appendLine("[JobCon] Abbruch-Signal gesendet...");
+        });
+}
+</script>
+{{end}}

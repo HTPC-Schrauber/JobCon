@@ -1,0 +1,110 @@
+{{define "content"}}
+<div class="tabs">
+    <a href="/settings/servers" class="tab active">Execution Server</a>
+    <a href="/settings/users" class="tab">Benutzerverwaltung</a>
+    <a href="/settings/system" class="tab">System & Tokens</a>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Talend Execution Server</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Linux-Zielserver, auf denen Jobs deployed und ausgeführt werden (Verbindung via SSH Key-Auth).
+            </p>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('addServerModal').style.display='flex'">
+            + Server Hinzufügen
+        </button>
+    </div>
+
+    {{if .Servers}}
+    <table>
+        <thead>
+            <tr>
+                <th>Server-ID</th>
+                <th>Anzeigename</th>
+                <th>Host & Port</th>
+                <th>SSH-User</th>
+                <th>SSH-Key</th>
+                <th>Status</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Servers}}
+            <tr>
+                <td style="font-family: var(--mono); font-weight: 600;">{{.ID}}</td>
+                <td>{{.Name}}</td>
+                <td style="font-family: var(--mono);">{{.Host}}:{{.Port}}</td>
+                <td>{{.User}}</td>
+                <td style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">{{.SSHKeyPath}}</td>
+                <td id="status-{{.ID}}">
+                    {{if eq .Status "online"}}
+                        <span class="badge badge-success">Online</span>
+                    {{else if eq .Status "offline"}}
+                        <span class="badge badge-danger">Offline</span>
+                    {{else}}
+                        <span class="badge badge-neutral">Ungeprüft</span>
+                    {{end}}
+                </td>
+                <td>
+                    <button class="btn btn-secondary btn-sm"
+                            hx-post="/api/v1/servers/{{.ID}}/test"
+                            hx-target="#status-{{.ID}}"
+                            hx-swap="innerHTML"
+                            hx-indicator="#loading-{{.ID}}">
+                        🔍 Verbindung Testen
+                    </button>
+                    <span id="loading-{{.ID}}" class="htmx-indicator" style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">Prüfe...</span>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        <div style="text-align: center; padding: 32px; color: var(--text-muted);">
+            Noch keine Execution Server hinterlegt.
+        </div>
+    {{end}}
+</div>
+
+<!-- Modal: Server Hinzufügen -->
+<div id="addServerModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+        <h3 style="margin-bottom: 16px; font-size: 18px;">Execution Server anlegen</h3>
+        <form action="/web/servers/create" method="POST">
+            <div class="form-group">
+                <label for="serverId">Server ID (eindeutiger Schlüssel)</label>
+                <input type="text" id="serverId" name="id" placeholder="srv-talend-prod-01" required>
+            </div>
+            <div class="form-group">
+                <label for="serverName">Anzeigename</label>
+                <input type="text" id="serverName" name="name" placeholder="Produktion Node 1" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 3fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="serverHost">Hostname oder IP-Adresse</label>
+                    <input type="text" id="serverHost" name="host" placeholder="192.168.1.100" required>
+                </div>
+                <div class="form-group">
+                    <label for="serverPort">SSH Port</label>
+                    <input type="text" id="serverPort" name="port" value="22" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="serverUser">SSH Benutzer</label>
+                <input type="text" id="serverUser" name="user" value="talend" required>
+            </div>
+            <div class="form-group">
+                <label for="serverKey">Pfad zum SSH Private Key (auf JobCon-Host)</label>
+                <input type="text" id="serverKey" name="ssh_key_path" placeholder="/home/jobcon/.ssh/id_ed25519" required>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('addServerModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Server Speichern</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

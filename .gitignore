@@ -1,0 +1,27 @@
+# Binaries and build artifacts
+/jobcon
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Test artifacts and coverage
+*.test
+*.out
+
+# Local configuration
+config.yaml
+
+# Local runtime data and logs
+/data/*
+!/data/.gitkeep
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

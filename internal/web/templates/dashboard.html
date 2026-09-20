@@ -1,0 +1,898 @@
+{{define "content"}}
+<!-- Top Metrics Bar -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+    <div class="card" style="margin-bottom: 0; padding: 16px;">
+        <div style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">Gesamte Jobs</div>
+        <div style="font-size: 26px; font-weight: 700; margin-top: 4px; color: #fff;">{{.TotalCount}}</div>
+    </div>
+    <div class="card" style="margin-bottom: 0; padding: 16px;">
+        <div style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">Aktive Server</div>
+        <div style="font-size: 26px; font-weight: 700; margin-top: 4px; color: #60a5fa;">{{len .Servers}}</div>
+    </div>
+    <div class="card" style="margin-bottom: 0; padding: 16px;">
+        <div style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">Gruppen</div>
+        <div style="font-size: 26px; font-weight: 700; margin-top: 4px; color: #34d399;">{{len .DistinctGroups}}</div>
+    </div>
+</div>
+
+<div class="card">
+    <!-- Header with Action & Quick Controls -->
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+            <h2 class="card-title">Talend Jobs ({{.TotalCount}})</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Verwaltung und Steuerung der konfigurierten Talend ETL-Artefakte.
+            </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; user-select: none; margin: 0;">
+                <input type="checkbox" id="groupByCheckbox" {{if eq .GroupBy "group_id"}}checked{{end}} onchange="toggleGroupingCheckbox(this)">
+                <span>Nach Gruppen bündeln</span>
+            </label>
+
+            <label style="font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; margin: 0;">
+                Zeilen:
+                <select name="page_size" form="filterForm" onchange="changePageSize(this.value)" style="width: auto; padding: 4px 8px; font-size: 12px; background: #0f172a; border: 1px solid var(--surface-border); border-radius: 4px; color: #fff;">
+                    <option value="10" {{if eq .PageSize 10}}selected{{end}}>10</option>
+                    <option value="25" {{if eq .PageSize 25}}selected{{end}}>25</option>
+                    <option value="50" {{if eq .PageSize 50}}selected{{end}}>50</option>
+                    <option value="100" {{if eq .PageSize 100}}selected{{end}}>100</option>
+                    <option value="1000" {{if eq .PageSize 1000}}selected{{end}}>1000</option>
+                </select>
+            </label>
+
+            {{if eq .User.Role "admin"}}
+                <button type="button" class="btn btn-primary btn-sm" onclick="openNewJobModal()">
+                    + Neuer Job Anlegen
+                </button>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Filter Form wrapping the Table -->
+    <form id="filterForm" method="GET" action="/">
+        <input type="hidden" name="page" id="pageInput" value="{{.CurrentPage}}">
+        <input type="hidden" name="page_size" id="pageSizeInput" value="{{.PageSize}}">
+        <input type="hidden" name="sort_by" id="sortByInput" value="{{.SortBy}}">
+        <input type="hidden" name="sort_order" id="sortOrderInput" value="{{.SortOrder}}">
+        <input type="hidden" name="group_by" id="groupByInput" value="{{.GroupBy}}">
+
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="sortable" onclick="setSort('name')">
+                            Job-Name {{if eq .SortBy "name"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                        </th>
+                        <th class="sortable" onclick="setSort('group_id')">
+                            Gruppe (GroupId) {{if eq .SortBy "group_id"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                        </th>
+                        <th class="sortable" onclick="setSort('server')">
+                            Zielserver {{if eq .SortBy "server"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                        </th>
+                        <th class="sortable" onclick="setSort('version')">
+                            Version {{if eq .SortBy "version"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                        </th>
+                        <th class="sortable" onclick="setSort('last_run')">
+                            Letzter Lauf {{if eq .SortBy "last_run"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                        </th>
+                        <th style="text-align: right;">Aktionen</th>
+                    </tr>
+                    <tr class="table-filter-row">
+                        <th>
+                            <div style="position: relative; display: flex; align-items: center;">
+                                <input type="text" name="search" id="colSearchInput" value="{{.Search}}" placeholder="Job / Artefakt filtern..." class="col-filter-input" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitFilter();}">
+                                {{if .Search}}
+                                    <button type="button" onclick="clearSearch()" title="Suche leeren" style="position: absolute; right: 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 2px 4px;">✕</button>
+                                {{end}}
+                            </div>
+                        </th>
+                        <th>
+                            <select name="group_id" onchange="submitFilter()" class="col-filter-select">
+                                <option value="">Alle Gruppen ({{len .DistinctGroups}})</option>
+                                {{range .DistinctGroups}}
+                                    <option value="{{.}}" {{if eq $.GroupID .}}selected{{end}}>{{.}}</option>
+                                {{end}}
+                            </select>
+                        </th>
+                        <th>
+                            <select name="server_id" onchange="submitFilter()" class="col-filter-select">
+                                <option value="">Alle Server ({{len .Servers}})</option>
+                                {{range .Servers}}
+                                    <option value="{{.ID}}" {{if eq $.ServerID .ID}}selected{{end}}>{{.Name}}</option>
+                                {{end}}
+                            </select>
+                        </th>
+                        <th></th>
+                        <th></th>
+                        <th style="text-align: right;">
+                            {{if or .Search .GroupID .ServerID}}
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="resetFilters()" style="color: #f87171; padding: 2px 8px; font-size: 11px; white-space: nowrap;">
+                                    ✕ Reset
+                                </button>
+                            {{end}}
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{if .Jobs}}
+                        {{$currentGroup := "___not_set___"}}
+                        {{range .Jobs}}
+                            {{if and (eq $.GroupBy "group_id") (ne .GroupID $currentGroup)}}
+                                {{$currentGroup = .GroupID}}
+                                <tr class="group-header-row">
+                                    <td colspan="6">
+                                        <div class="group-header-content">
+                                            📁 <strong>{{if .GroupID}}{{.GroupID}}{{else}}<em>(Keine Gruppe)</em>{{end}}</strong>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {{end}}
+                            <tr class="job-row" onclick="openSidepanel('{{.ID}}')">
+                                <td>
+                                    <div style="font-weight: 600; color: #fff;">
+                                        {{.Name}}
+                                    </div>
+                                    <div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">
+                                        {{.ArtifactID}}
+                                    </div>
+                                </td>
+                                <td style="font-size: 12px; color: #94a3b8; font-family: var(--mono);">
+                                    {{.GroupID}}
+                                </td>
+                                <td>
+                                    <span class="badge badge-neutral">{{.ServerName}}</span>
+                                </td>
+                                <td>
+                                    <span class="badge badge-success">{{.ActiveVersion}}</span>
+                                </td>
+                                <td>
+                                    {{if .LastRunStatus}}
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span class="badge {{if eq .LastRunStatus "success"}}badge-success{{else if eq .LastRunStatus "failed"}}badge-danger{{else if eq .LastRunStatus "running"}}badge-running{{else}}badge-neutral{{end}}">
+                                                {{.LastRunStatus}}
+                                            </span>
+                                            {{if .LastRunID}}
+                                                <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
+                                                    📄 Log
+                                                </button>
+                                            {{end}}
+                                        </div>
+                                        {{if .LastRunStartedAt}}
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                                {{.LastRunStartedAt.Format "02.01.06 15:04"}}
+                                            </div>
+                                        {{end}}
+                                    {{else}}
+                                        <span style="font-size: 12px; color: var(--text-muted);">- Nie -</span>
+                                    {{end}}
+                                </td>
+                                <td style="text-align: right;" onclick="event.stopPropagation()">
+                                    <div style="display: inline-flex; gap: 6px;">
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openRunModal('{{.ID}}', '{{.Name}}', '{{.ActiveVersion}}', '{{.DefaultContext}}')">
+                                            ▶ Start
+                                        </button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openDeployModal('{{.ID}}', '{{.Name}}', '{{.ActiveVersion}}')">
+                                            🚀 Deploy
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        {{end}}
+                    {{else}}
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 48px; color: var(--text-muted);">
+                                Keine Jobs gefunden, die den Kriterien entsprechen.
+                                {{if or .Search .GroupID .ServerID}}
+                                    <div style="margin-top: 8px;">
+                                        <a href="javascript:resetFilters()" style="color: #f87171; text-decoration: underline;">Filter zurücksetzen</a>
+                                    </div>
+                                {{end}}
+                            </td>
+                        </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+
+        {{if .Jobs}}
+        <!-- Pagination Footer -->
+        <div class="pagination-container">
+            <div style="font-size: 12px; color: var(--text-muted);">
+                Zeige <strong>{{len .Jobs}}</strong> von <strong>{{.TotalCount}}</strong> Jobs (Seite {{.CurrentPage}} von {{.TotalPages}})
+            </div>
+            <div class="pagination-controls">
+                <a href="javascript:goToPage(1)" class="page-link {{if le .CurrentPage 1}}disabled{{end}}">« Erste</a>
+                <a href="javascript:goToPage({{.CurrentPage | add -1}})" class="page-link {{if le .CurrentPage 1}}disabled{{end}}">‹ Zurück</a>
+                <span class="page-link active">{{.CurrentPage}}</span>
+                <a href="javascript:goToPage({{.CurrentPage | add 1}})" class="page-link {{if ge .CurrentPage .TotalPages}}disabled{{end}}">Vor ›</a>
+                <a href="javascript:goToPage({{.TotalPages}})" class="page-link {{if ge .CurrentPage .TotalPages}}disabled{{end}}">Letzte »</a>
+            </div>
+        </div>
+        {{end}}
+    </form>
+</div>
+
+<!-- ========================================================================= -->
+<!-- SLIDE-OUT SIDEPANEL                                                      -->
+<!-- ========================================================================= -->
+<div id="sidepanelBackdrop" class="sidepanel-backdrop" onclick="closeSidepanel()"></div>
+<div id="jobSidepanel" class="sidepanel">
+    <div class="sidepanel-header">
+        <div>
+            <h3 id="spJobName" style="font-size: 18px; color: #fff; margin-bottom: 2px;">Job Details</h3>
+            <div id="spJobID" style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);"></div>
+        </div>
+        <button class="sidepanel-close" onclick="closeSidepanel()">✕</button>
+    </div>
+
+    <div class="sidepanel-body">
+        <!-- Quick Action Buttons -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--surface-border);">
+            <button id="spRunBtn" class="btn btn-primary btn-sm">▶ Starten</button>
+            <button id="spDeployBtn" class="btn btn-secondary btn-sm">🚀 Deployen</button>
+            {{if eq .User.Role "admin"}}
+                <button id="spEditBtn" class="btn btn-secondary btn-sm">✏️ Bearbeiten</button>
+                <button id="spDeleteBtn" class="btn btn-danger btn-sm">🗑️ Löschen</button>
+            {{end}}
+        </div>
+
+        <!-- Details List -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Gruppe (GroupId)</div>
+                <div id="spGroupID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Artefakt (ArtifactId)</div>
+                <div id="spArtifactID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Aktive Version</div>
+                <div id="spActiveVersion" style="margin-top: 2px;"><span class="badge badge-success"></span></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Nexus Repository</div>
+                <div id="spNexusRepo" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Ziel Execution Server</div>
+                <div id="spServerName" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Standard Context</div>
+                <div id="spDefaultContext" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+        </div>
+
+        <!-- History of Executions for this Job -->
+        <h4 style="font-size: 14px; margin-bottom: 12px; color: #cbd5e1;">Ausführungshistorie für diesen Job</h4>
+        <div id="spExecutionsList" style="margin-bottom: 20px;">Lade Historie...</div>
+
+        <!-- Latest Log Preview -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h4 style="font-size: 14px; margin: 0; color: #cbd5e1;">Letztes Konsolen-Log</h4>
+            <button id="spLogExpandBtn" type="button" class="btn btn-secondary btn-sm" style="display: none; padding: 2px 8px; font-size: 11px;" onclick="expandSidepanelLog()">
+                ⛶ Großansicht
+            </button>
+        </div>
+        <div id="spLogPreview" style="background: #090d16; border: 1px solid var(--surface-border); border-radius: 6px; padding: 12px; font-family: var(--mono); font-size: 11px; color: #94a3b8; max-height: 250px; overflow-y: auto; white-space: pre-wrap;">
+            Kein Log vorhanden
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: JOB BEARBEITEN                                                    -->
+<!-- ========================================================================= -->
+<div id="editJobModal" class="modal-overlay" style="display: none;">
+    <div class="modal" style="max-width: 600px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 id="editJobModalTitle" style="font-size: 18px; margin: 0;">Job bearbeiten</h3>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openNexusPicker('edit')">
+                🔍 Nexus durchsuchen...
+            </button>
+        </div>
+        <form id="editJobForm" action="" method="POST">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="editJobId">Job ID (unveränderlich)</label>
+                    <input type="text" id="editJobId" name="id" readonly style="opacity: 0.6; cursor: not-allowed;">
+                </div>
+                <div class="form-group">
+                    <label for="editJobName">Anzeigename</label>
+                    <input type="text" id="editJobName" name="name" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="editServerID">Ziel Execution Server</label>
+                <select id="editServerID" name="server_id" required>
+                    {{range .Servers}}
+                        <option value="{{.ID}}">{{.Name}} ({{.Host}})</option>
+                    {{end}}
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="editGroupId">Maven GroupId</label>
+                    <input type="text" id="editGroupId" name="group_id" required>
+                </div>
+                <div class="form-group">
+                    <label for="editArtifactId">Maven ArtifactId</label>
+                    <input type="text" id="editArtifactId" name="artifact_id" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="editActiveVersion">Aktive Version</label>
+                    <input type="text" id="editActiveVersion" name="active_version" required>
+                </div>
+                <div class="form-group">
+                    <label for="editNexusRepo">Nexus Repository</label>
+                    <select id="editNexusRepo" name="nexus_repo" required>
+                        {{range .NexusRepos}}
+                            <option value="{{.ID}}">{{.Label}} ({{.ID}})</option>
+                        {{end}}
+                    </select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="editDefaultContext">Standard Context</label>
+                    <input type="text" id="editDefaultContext" name="default_context" value="Default" required>
+                </div>
+                <div class="form-group">
+                    <label for="editRetentionRuns">Aufbewahrte Läufe (Retention)</label>
+                    <input type="number" id="editRetentionRuns" name="retention_runs" value="10" min="1" max="100" required>
+                </div>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" id="editAllowConcurrent" name="allow_concurrent" value="1">
+                    Parallele Läufe erlauben
+                </label>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('editJobModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Änderungen Speichern</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: NEUER JOB ANLEGEN                                                 -->
+<!-- ========================================================================= -->
+<div id="newJobModal" class="modal-overlay" style="display: none;">
+    <div class="modal" style="max-width: 650px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="font-size: 18px;">Neuen Talend Job anlegen</h3>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openNexusPicker('new')">
+                🔍 Nexus durchsuchen...
+            </button>
+        </div>
+        <form action="/web/jobs/create" method="POST">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="newJobId">Job ID (Schlüssel)</label>
+                    <input type="text" id="newJobId" name="id" placeholder="sync_sap_kunden" required>
+                </div>
+                <div class="form-group">
+                    <label for="newJobName">Anzeigename</label>
+                    <input type="text" id="newJobName" name="name" placeholder="SAP Kunden Synchronisation" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="newServerID">Ziel Execution Server</label>
+                <select id="newServerID" name="server_id" required>
+                    {{range .Servers}}
+                        <option value="{{.ID}}">{{.Name}} ({{.Host}})</option>
+                    {{end}}
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="newGroupId">Maven GroupId</label>
+                    <input type="text" id="newGroupId" name="group_id" placeholder="de.firma.talend" required>
+                </div>
+                <div class="form-group">
+                    <label for="newArtifactId">Maven ArtifactId</label>
+                    <input type="text" id="newArtifactId" name="artifact_id" placeholder="sync_sap_kunden" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="newActiveVersion">Initiale Version</label>
+                    <input type="text" id="newActiveVersion" name="active_version" placeholder="1.0.0" required>
+                </div>
+                <div class="form-group">
+                    <label for="newNexusRepo">Nexus Repository</label>
+                    <select id="newNexusRepo" name="nexus_repo" required>
+                        {{range .NexusRepos}}
+                            <option value="{{.ID}}">{{.Label}} ({{.ID}})</option>
+                        {{end}}
+                    </select>
+                </div>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="checkbox" name="allow_concurrent" value="1">
+                    Parallele Läufe erlauben
+                </label>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('newJobModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Job Speichern</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: NEXUS ARTIFACT PICKER (TREE VIEW)                                 -->
+<!-- ========================================================================= -->
+<div id="nexusPickerModal" class="modal-overlay" style="display: none; z-index: 2200;">
+    <div class="modal" style="max-width: 700px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="font-size: 18px; margin: 0;">Nexus Artefakt auswählen</h3>
+            <button type="button" class="sidepanel-close" onclick="closeNexusPicker()">✕</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
+            Wählen Sie ein Artefakt aus der Baumstruktur, um GroupId, ArtifactId und Version automatisch zu übernehmen.
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+            <select id="pickerRepoSelect" onchange="fetchNexusTree()">
+                {{range .NexusRepos}}
+                    <option value="{{.ID}}">{{.Label}} ({{.ID}})</option>
+                {{end}}
+            </select>
+            <input type="text" id="pickerSearchInput" placeholder="Filter nach Gruppe / Name / Version..." oninput="debouncedFetchNexusTree()">
+        </div>
+
+        <div id="nexusTreeContainer" class="nexus-tree" style="flex: 1; max-height: 400px; min-height: 180px;">
+            Lade Artefakte aus Nexus...
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+            <div style="font-size: 11px; color: var(--text-muted);">
+                Tipp: Einstellungen prüfen unter <a href="/settings/system" style="color: #60a5fa;" target="_blank">System &amp; Tokens</a>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="closeNexusPicker()">Schließen</button>
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: START JOB                                                         -->
+<!-- ========================================================================= -->
+<div id="runModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+        <h3 id="runModalTitle" style="margin-bottom: 16px; font-size: 18px;">Job starten</h3>
+        <form id="runForm" action="/web/jobs/run" method="POST">
+            <input type="hidden" id="runJobID" name="job_id">
+            <div class="form-group">
+                <label for="runVersion">Version (Standard: aktive Version)</label>
+                <input type="text" id="runVersion" name="version">
+            </div>
+            <div class="form-group">
+                <label for="runContext">Talend Context</label>
+                <input type="text" id="runContext" name="context">
+            </div>
+            <div class="form-group">
+                <label for="runParams">Zusätzliche Parameter (Key=Value pro Zeile)</label>
+                <textarea id="runParams" name="params" rows="3" placeholder="startDate=2026-09-01&#10;batchSize=5000"></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('runModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Jetzt Ausführen</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: DEPLOY VERSION                                                    -->
+<!-- ========================================================================= -->
+<div id="deployModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+        <h3 id="deployModalTitle" style="margin-bottom: 16px; font-size: 18px;">Release deployen</h3>
+        <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 16px;">
+            Lädt das Release aus Nexus herunter, entpackt es auf dem Zielserver und schaltet den Symlink 'current' um.
+        </p>
+        <form id="deployForm" action="/web/jobs/deploy" method="POST">
+            <input type="hidden" id="deployJobID" name="job_id">
+            <div class="form-group">
+                <label for="deployVersion">Ziel-Version (z. B. 1.5.0)</label>
+                <input type="text" id="deployVersion" name="version" required>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('deployModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Download & Deploy</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: QUICK LOG VIEWER                                                  -->
+<!-- ========================================================================= -->
+<div id="quickLogModal" class="modal-overlay" style="display: none;">
+    <div class="modal" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 id="quickLogTitle" style="font-size: 16px;">Konsolen-Log</h3>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="copyQuickLog()">📋 Kopieren</button>
+                <button type="button" class="sidepanel-close" onclick="document.getElementById('quickLogModal').style.display='none'">✕</button>
+            </div>
+        </div>
+        <div id="quickLogContent" style="background: #090d16; border: 1px solid var(--surface-border); border-radius: 6px; padding: 16px; font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 550px; max-height: 65vh; overflow-y: auto; white-space: pre-wrap;">
+            Lade Log...
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+            <a id="quickLogLink" href="#" class="btn btn-secondary btn-sm">🖥️ Vollbild Konsole öffnen</a>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('quickLogModal').style.display='none'">Schließen</button>
+        </div>
+    </div>
+</div>
+
+<!-- JAVASCRIPT LOGIC -->
+<script>
+let currentJobData = null;
+let currentSidepanelExecId = '';
+let currentSidepanelJobName = '';
+
+function copyQuickLog() {
+    const txt = document.getElementById('quickLogContent').innerText;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(txt).then(() => {
+            alert('Log in die Zwischenablage kopiert!');
+        });
+    }
+}
+
+function expandSidepanelLog() {
+    if (currentSidepanelExecId) {
+        openQuickLog(currentSidepanelExecId, currentSidepanelJobName);
+    }
+}
+
+function submitFilter() {
+    document.getElementById('pageInput').value = 1;
+    document.getElementById('filterForm').submit();
+}
+
+function clearSearch() {
+    document.getElementById('colSearchInput').value = '';
+    submitFilter();
+}
+
+function resetFilters() {
+    const searchInput = document.getElementById('colSearchInput');
+    if (searchInput) searchInput.value = '';
+    const groupSelect = document.querySelector('select[name="group_id"]');
+    if (groupSelect) groupSelect.value = '';
+    const serverSelect = document.querySelector('select[name="server_id"]');
+    if (serverSelect) serverSelect.value = '';
+    submitFilter();
+}
+
+function goToPage(p) {
+    document.getElementById('pageInput').value = p;
+    document.getElementById('filterForm').submit();
+}
+
+function setSort(col) {
+    const currentSort = document.getElementById('sortByInput').value;
+    const currentOrder = document.getElementById('sortOrderInput').value;
+    if (currentSort === col) {
+        document.getElementById('sortOrderInput').value = (currentOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+        document.getElementById('sortByInput').value = col;
+        document.getElementById('sortOrderInput').value = 'asc';
+    }
+    saveUserPreference('job_list_sort_by', document.getElementById('sortByInput').value);
+    saveUserPreference('job_list_sort_order', document.getElementById('sortOrderInput').value);
+    document.getElementById('pageInput').value = 1;
+    document.getElementById('filterForm').submit();
+}
+
+function changePageSize(size) {
+    saveUserPreference('job_list_page_size', size);
+    const psInput = document.getElementById('pageSizeInput');
+    if (psInput) psInput.value = size;
+    document.getElementById('pageInput').value = 1;
+    document.getElementById('filterForm').submit();
+}
+
+function toggleGroupingCheckbox(cb) {
+    const next = cb.checked ? 'group_id' : '';
+    document.getElementById('groupByInput').value = next;
+    saveUserPreference('job_list_group_by', next);
+    submitFilter();
+}
+
+function toggleGrouping() {
+    const current = document.getElementById('groupByInput').value;
+    const next = (current === 'group_id' ? '' : 'group_id');
+    document.getElementById('groupByInput').value = next;
+    const cb = document.getElementById('groupByCheckbox');
+    if (cb) cb.checked = (next === 'group_id');
+    saveUserPreference('job_list_group_by', next);
+    submitFilter();
+}
+
+function saveUserPreference(key, value) {
+    fetch('/api/v1/user/preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value })
+    }).catch(e => console.error(e));
+}
+
+// Sidepanel Logic
+function openSidepanel(jobId) {
+    fetch('/api/v1/jobs/' + jobId)
+        .then(res => res.json())
+        .then(job => {
+            currentJobData = job;
+            currentSidepanelJobName = job.name;
+            document.getElementById('spJobName').innerText = job.name;
+            document.getElementById('spJobID').innerText = job.id;
+            document.getElementById('spGroupID').innerText = job.group_id;
+            document.getElementById('spArtifactID').innerText = job.artifact_id;
+            document.getElementById('spActiveVersion').innerHTML = '<span class="badge badge-success">' + job.active_version + '</span>';
+            document.getElementById('spNexusRepo').innerText = job.nexus_repo;
+            document.getElementById('spServerName').innerText = job.server_name || job.server_id;
+            document.getElementById('spDefaultContext').innerText = job.default_context;
+
+            document.getElementById('spRunBtn').onclick = () => openRunModal(job.id, job.name, job.active_version, job.default_context);
+            document.getElementById('spDeployBtn').onclick = () => openDeployModal(job.id, job.name, job.active_version);
+            const editBtn = document.getElementById('spEditBtn');
+            if (editBtn) editBtn.onclick = () => openEditModal(job);
+            const deleteBtn = document.getElementById('spDeleteBtn');
+            if (deleteBtn) deleteBtn.onclick = () => deleteJob(job.id, job.name);
+
+            // Fetch executions for this job
+            fetch('/api/v1/executions?job_id=' + job.id + '&limit=5')
+                .then(r => r.json())
+                .then(execs => {
+                    const el = document.getElementById('spExecutionsList');
+                    if (!execs || execs.length === 0) {
+                        el.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">Noch keine Ausführungen.</div>';
+                        document.getElementById('spLogPreview').innerText = 'Kein Log vorhanden';
+                        document.getElementById('spLogExpandBtn').style.display = 'none';
+                        currentSidepanelExecId = '';
+                        return;
+                    }
+
+                    let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                    execs.forEach(e => {
+                        const badgeClass = e.status === 'success' ? 'badge-success' : (e.status === 'failed' ? 'badge-danger' : 'badge-neutral');
+                        html += '<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 4px;">';
+                        html += '<div><span class="badge ' + badgeClass + '">' + e.status + '</span> <span style="font-size: 12px; margin-left: 6px;">' + e.version + '</span></div>';
+                        html += '<div style="font-size: 11px; color: var(--text-muted);">' + new Date(e.started_at).toLocaleString('de-DE') + '</div>';
+                        html += '<div style="display: flex; gap: 4px;">';
+                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="loadLogIntoSidepanel(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">Log</button>';
+                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="openQuickLog(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">⛶ Groß</button>';
+                        html += '</div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                    el.innerHTML = html;
+
+                    // Load latest log
+                    loadLogIntoSidepanel(execs[0].id, job.name);
+                });
+
+            document.getElementById('sidepanelBackdrop').classList.add('open');
+            document.getElementById('jobSidepanel').classList.add('open');
+        });
+}
+
+function loadLogIntoSidepanel(execId, jobName) {
+    currentSidepanelExecId = execId;
+    if (jobName) {
+        currentSidepanelJobName = jobName;
+    } else if (currentJobData) {
+        currentSidepanelJobName = currentJobData.name;
+    }
+    document.getElementById('spLogPreview').innerText = 'Lade Log...';
+    document.getElementById('spLogExpandBtn').style.display = 'inline-flex';
+    fetch('/api/v1/executions/' + execId + '/logs?format=raw')
+        .then(r => r.text())
+        .then(txt => {
+            document.getElementById('spLogPreview').innerText = txt;
+        });
+}
+
+function closeSidepanel() {
+    document.getElementById('sidepanelBackdrop').classList.remove('open');
+    document.getElementById('jobSidepanel').classList.remove('open');
+}
+
+// Edit Modal
+function openEditModal(job) {
+    closeSidepanel();
+    document.getElementById('editJobForm').action = '/web/jobs/' + job.id + '/update';
+    document.getElementById('editJobModalTitle').innerText = 'Job bearbeiten: ' + job.name;
+    document.getElementById('editJobId').value = job.id;
+    document.getElementById('editJobName').value = job.name;
+    document.getElementById('editServerID').value = job.server_id;
+    document.getElementById('editGroupId').value = job.group_id;
+    document.getElementById('editArtifactId').value = job.artifact_id;
+    document.getElementById('editActiveVersion').value = job.active_version;
+    document.getElementById('editNexusRepo').value = job.nexus_repo;
+    document.getElementById('editDefaultContext').value = job.default_context;
+    document.getElementById('editRetentionRuns').value = job.retention_runs || 10;
+    document.getElementById('editAllowConcurrent').checked = job.allow_concurrent;
+    document.getElementById('editJobModal').style.display = 'flex';
+}
+
+function deleteJob(id, name) {
+    if (!confirm('Möchten Sie den Job "' + name + '" wirklich löschen?')) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/web/jobs/' + id + '/delete';
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function openNewJobModal() {
+    document.getElementById('newJobModal').style.display = 'flex';
+}
+
+function openRunModal(id, name, version, defaultCtx) {
+    closeSidepanel();
+    document.getElementById('runJobID').value = id;
+    document.getElementById('runModalTitle').innerText = 'Job starten: ' + name;
+    document.getElementById('runVersion').value = version;
+    document.getElementById('runContext').value = defaultCtx;
+    document.getElementById('runModal').style.display = 'flex';
+}
+
+function openDeployModal(id, name, version) {
+    closeSidepanel();
+    document.getElementById('deployJobID').value = id;
+    document.getElementById('deployModalTitle').innerText = 'Release deployen: ' + name;
+    document.getElementById('deployVersion').value = version;
+    document.getElementById('deployModal').style.display = 'flex';
+}
+
+function openQuickLog(execId, jobName) {
+    document.getElementById('quickLogTitle').innerText = 'Log: ' + jobName;
+    document.getElementById('quickLogContent').innerText = 'Lade Log...';
+    document.getElementById('quickLogLink').href = '/executions/' + execId;
+    document.getElementById('quickLogModal').style.display = 'flex';
+    fetch('/api/v1/executions/' + execId + '/logs?format=raw')
+        .then(r => r.text())
+        .then(txt => {
+            document.getElementById('quickLogContent').innerText = txt;
+        });
+}
+
+// Nexus Tree Browser Picker
+let pickerTarget = 'new'; // 'new' or 'edit'
+
+function openNexusPicker(target) {
+    pickerTarget = target || 'new';
+    const groupField = (pickerTarget === 'edit') ? 'editGroupId' : 'newGroupId';
+    const repoField = (pickerTarget === 'edit') ? 'editNexusRepo' : 'newNexusRepo';
+    const existingGroup = document.getElementById(groupField).value;
+    const existingRepo = document.getElementById(repoField).value;
+
+    if (existingRepo) {
+        document.getElementById('pickerRepoSelect').value = existingRepo;
+    }
+    document.getElementById('pickerSearchInput').value = existingGroup;
+    document.getElementById('nexusPickerModal').style.display = 'flex';
+    fetchNexusTree();
+}
+
+function closeNexusPicker() {
+    document.getElementById('nexusPickerModal').style.display = 'none';
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[tag] || tag));
+}
+
+let nexusSearchTimer = null;
+function debouncedFetchNexusTree() {
+    if (nexusSearchTimer) clearTimeout(nexusSearchTimer);
+    nexusSearchTimer = setTimeout(() => {
+        fetchNexusTree();
+    }, 250);
+}
+
+function fetchNexusTree() {
+    if (nexusSearchTimer) {
+        clearTimeout(nexusSearchTimer);
+        nexusSearchTimer = null;
+    }
+    const repo = document.getElementById('pickerRepoSelect').value;
+    const query = (document.getElementById('pickerSearchInput').value || '').trim();
+    const container = document.getElementById('nexusTreeContainer');
+    container.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">⏳ Lade Artefakte aus Nexus...</div>';
+
+    fetch('/api/v1/nexus/search?repo=' + encodeURIComponent(repo) + '&query=' + encodeURIComponent(query))
+        .then(async r => {
+            if (!r.ok) {
+                let msg = 'HTTP ' + r.status;
+                try {
+                    const errObj = await r.json();
+                    if (errObj && errObj.error) msg = errObj.error;
+                } catch(e) {}
+                throw new Error(msg);
+            }
+            return r.json();
+        })
+        .then(groups => {
+            if (!groups || groups.length === 0) {
+                if (query) {
+                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">Keine Artefakte für Filter <code>' + escapeHtml(query) + '</code> im Repository <code>' + escapeHtml(repo) + '</code> gefunden.</div>';
+                } else {
+                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">Keine Artefakte im Repository <code>' + escapeHtml(repo) + '</code> gefunden.</div>';
+                }
+                return;
+            }
+
+            let html = '';
+            groups.forEach(g => {
+                html += '<div style="margin-bottom: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border); border-radius: 6px; padding: 8px;">';
+                html += '<div class="tree-group-title">📁 <strong>' + g.group + '</strong></div>';
+                g.artifacts.forEach(a => {
+                    html += '<div class="tree-artifact-item" style="padding-left: 12px; margin-top: 6px;">';
+                    html += '<div class="tree-artifact-title">📦 ' + a.artifact_id + '</div>';
+                    html += '<div class="tree-versions-list" style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; padding-left: 20px;">';
+                    a.versions.forEach(v => {
+                        html += '<span class="tree-version-badge" style="cursor: pointer; background: #1e293b; border: 1px solid #334155; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #34d399;" onclick="selectNexusArtifact(\'' + g.group + '\', \'' + a.artifact_id + '\', \'' + v + '\', \'' + repo + '\')">v' + v + '</span>';
+                    });
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            });
+            container.innerHTML = html;
+        })
+        .catch(err => {
+            container.innerHTML = '<div style="color: #f87171; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; font-size: 13px;">' +
+                '<div style="font-weight: 600; margin-bottom: 6px;">⚠️ Nexus nicht erreichbar</div>' +
+                '<div style="margin-bottom: 8px;">' + err.message + '</div>' +
+                '<div style="font-size: 11px; color: var(--text-muted);">' +
+                'Prüfen Sie Basis-URL und Anmeldedaten unter <a href="/settings/system" target="_blank" style="color: #60a5fa; text-decoration: underline;">Einstellungen &gt; System</a>' +
+                '</div>' +
+                '</div>';
+        });
+}
+
+function selectNexusArtifact(group, artifact, version, repo) {
+    if (pickerTarget === 'edit') {
+        document.getElementById('editGroupId').value = group;
+        document.getElementById('editArtifactId').value = artifact;
+        document.getElementById('editActiveVersion').value = version;
+        document.getElementById('editNexusRepo').value = repo;
+    } else {
+        document.getElementById('newGroupId').value = group;
+        document.getElementById('newArtifactId').value = artifact;
+        document.getElementById('newActiveVersion').value = version;
+        document.getElementById('newNexusRepo').value = repo;
+
+        if (!document.getElementById('newJobId').value) {
+            document.getElementById('newJobId').value = artifact;
+        }
+        if (!document.getElementById('newJobName').value) {
+            document.getElementById('newJobName').value = artifact.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+    }
+
+    closeNexusPicker();
+}
+</script>
+{{end}}

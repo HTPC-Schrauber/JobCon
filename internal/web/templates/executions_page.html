@@ -1,0 +1,95 @@
+{{define "content"}}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Ausführungshistorie</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Globale Übersicht aller Job-Ausführungen und Deployments.
+            </p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <a href="/executions" class="btn btn-secondary btn-sm">Aktualisieren</a>
+        </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar" style="background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 6px; border: 1px solid var(--surface-border);">
+        <div class="filter-group">
+            <span style="font-size: 12px; color: var(--text-muted);">Status filtern:</span>
+            <a href="/executions" class="page-link {{if eq .FilterStatus ""}}active{{end}}">Alle</a>
+            <a href="/executions?status=running" class="page-link {{if eq .FilterStatus "running"}}active{{end}}">Läuft</a>
+            <a href="/executions?status=success" class="page-link {{if eq .FilterStatus "success"}}active{{end}}">Erfolg</a>
+            <a href="/executions?status=failed" class="page-link {{if eq .FilterStatus "failed"}}active{{end}}">Fehler</a>
+            <a href="/executions?status=aborted" class="page-link {{if eq .FilterStatus "aborted"}}active{{end}}">Abgebrochen</a>
+        </div>
+    </div>
+
+    {{if .Executions}}
+    <table>
+        <thead>
+            <tr>
+                <th>Status</th>
+                <th>Job-Name</th>
+                <th>Aktion</th>
+                <th>Version</th>
+                <th>Dauer</th>
+                <th>Gestartet am</th>
+                <th>Ausgelöst durch</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Executions}}
+            <tr>
+                <td>
+                    {{if eq .Status "success"}}
+                        <span class="badge badge-success">Erfolg</span>
+                    {{else if eq .Status "failed"}}
+                        <span class="badge badge-danger">Fehler</span>
+                    {{else if eq .Status "running"}}
+                        <span class="badge badge-running">Läuft</span>
+                    {{else if eq .Status "aborted"}}
+                        <span class="badge badge-warning">Abgebrochen</span>
+                    {{else}}
+                        <span class="badge badge-neutral">{{.Status}}</span>
+                    {{end}}
+                </td>
+                <td>
+                    <div style="font-weight: 600;">{{.JobName}}</div>
+                    <div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">{{.ID}}</div>
+                </td>
+                <td>
+                    {{if eq .Action "deploy"}}
+                        <span style="color: #60a5fa; font-weight: 500;">Deploy</span>
+                    {{else}}
+                        <span>Ausführung</span>
+                    {{end}}
+                </td>
+                <td><span class="badge badge-neutral">{{.Version}}</span></td>
+                <td style="font-size: 12px; color: var(--text-muted);">
+                    {{if .DurationMS}}
+                        {{.DurationMS}} ms
+                    {{else}}
+                        -
+                    {{end}}
+                </td>
+                <td style="font-size: 12px; color: var(--text-muted);">
+                    {{.StartedAt.Format "02.01.2006 15:04:05"}}
+                </td>
+                <td style="font-size: 12px;">{{.TriggeredBy}}</td>
+                <td>
+                    <a href="/executions/{{.ID}}" class="btn btn-secondary btn-sm">
+                        🖥️ Konsole & Log
+                    </a>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        <div style="text-align: center; padding: 48px; color: var(--text-muted);">
+            Keine Ausführungen gefunden.
+        </div>
+    {{end}}
+</div>
+{{end}}

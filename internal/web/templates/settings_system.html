@@ -1,0 +1,311 @@
+{{define "content"}}
+<div class="tabs">
+    <a href="/settings/servers" class="tab">Execution Server</a>
+    <a href="/settings/users" class="tab">Benutzerverwaltung</a>
+    <a href="/settings/system" class="tab active">System & Tokens</a>
+</div>
+
+{{if .SuccessMsg}}
+<div class="card" style="border-color: var(--success); background: rgba(16, 185, 129, 0.1); margin-bottom: 16px;">
+    <div style="color: var(--success); font-weight: 600;">✓ {{.SuccessMsg}}</div>
+</div>
+{{end}}
+
+{{if .ErrorMsg}}
+<div class="card" style="border-color: var(--danger); background: rgba(239, 68, 68, 0.1); margin-bottom: 16px;">
+    <div style="color: var(--danger); font-weight: 600;">✗ {{.ErrorMsg}}</div>
+</div>
+{{end}}
+
+{{if .NewTokenRaw}}
+<div class="card" style="border-color: var(--success); background: rgba(16, 185, 129, 0.1); margin-bottom: 16px;">
+    <h3 style="color: var(--success); margin-bottom: 8px;">Neuer API Token erstellt!</h3>
+    <p style="font-size: 13px; margin-bottom: 12px;">
+        Kopieren Sie dieses Token jetzt. Es wird aus Sicherheitsgründen nicht erneut angezeigt:
+    </p>
+    <div style="background: #090d16; padding: 12px; border-radius: 6px; font-family: var(--mono); font-size: 14px; color: #34d399; word-break: break-all; border: 1px solid rgba(16, 185, 129, 0.3);">
+        {{.NewTokenRaw}}
+    </div>
+</div>
+{{end}}
+
+<!-- Nexus 3 Grundkonfiguration -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Nexus 3 Artefakt-Repository</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Verbindungsdaten zum Maven-Repository zur Auflösung und zum Download von Talend Job ZIPs. Benutzername und Passwort sind für anonyme Repositories optional.
+            </p>
+        </div>
+    </div>
+    <form action="/web/settings/nexus" method="POST">
+        <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="nexusBaseURL">Nexus Basis-URL</label>
+                <input type="text" id="nexusBaseURL" name="nexus_base_url" value="{{.NexusBaseURL}}" placeholder="https://nexus.example.com/repository" required>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="nexusAnonymous" name="nexus_anonymous" value="true" {{if .NexusAnonymous}}checked{{end}} onchange="toggleNexusAnonymous()">
+                <span style="font-weight: 500;">Anonymer Zugriff</span>
+                <span style="color: var(--text-muted); font-size: 12px;">(Keine Zugangsdaten erforderlich für öffentliche Repositories)</span>
+            </label>
+        </div>
+
+        <div id="nexusAuthFields" style="display: {{if .NexusAnonymous}}none{{else}}grid{{end}}; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="nexusUser">Benutzername</label>
+                <input type="text" id="nexusUser" name="nexus_username" value="{{.NexusUser}}" placeholder="nexus-reader">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="nexusPass">Passwort</label>
+                <input type="password" id="nexusPass" name="nexus_password" placeholder="{{if .HasPassword}}●●●●●●●● (Unverändert){{else}}Passwort eingeben{{end}}">
+            </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+            <button type="button" id="btnTestNexus" class="btn btn-secondary btn-sm" onclick="testNexusConnection()">
+                ⚡ Verbindung testen
+            </button>
+            <button type="submit" class="btn btn-primary">
+                Nexus Einstellungen speichern
+            </button>
+        </div>
+        <div id="nexusTestResult" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px;"></div>
+    </form>
+</div>
+
+<!-- Nexus Repositories Multi-Verwaltung -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Nexus Repositories</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Konfigurierte Repositories (z. B. Releases, Snapshots) für Talend Jobs.
+            </p>
+        </div>
+    </div>
+
+    {{if .NexusRepositories}}
+    <table style="margin-bottom: 20px;">
+        <thead>
+            <tr>
+                <th style="width: 25%;">Repository-ID</th>
+                <th>Bezeichnung / Label</th>
+                <th style="width: 120px; text-align: right;">Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .NexusRepositories}}
+            <tr>
+                <td><code style="color: #60a5fa; font-weight: 600;">{{.ID}}</code></td>
+                <td>{{.Label}}</td>
+                <td style="text-align: right;">
+                    <form action="/web/settings/nexus/repo/delete" method="POST" style="display: inline;" onsubmit="return confirm('Repository wirklich entfernen?')">
+                        <input type="hidden" name="repo_id" value="{{.ID}}">
+                        <button type="submit" class="btn btn-danger btn-sm">Löschen</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+            Keine Repositories konfiguriert.
+        </div>
+    {{end}}
+
+    <!-- Form: Repository Hinzufügen -->
+    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border); border-radius: 6px; padding: 16px;">
+        <h4 style="font-size: 13px; font-weight: 600; margin-bottom: 12px; color: #cbd5e1;">+ Weiteres Repository hinzufügen</h4>
+        <form action="/web/settings/nexus/repo/add" method="POST" style="display: grid; grid-template-columns: 1fr 2fr auto; gap: 12px; align-items: end;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="newRepoId" style="font-size: 12px;">Repository ID (Nexus Pfadname)</label>
+                <input type="text" id="newRepoId" name="repo_id" placeholder="z. B. custom-releases" required>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="newRepoLabel" style="font-size: 12px;">Anzeige-Label</label>
+                <input type="text" id="newRepoLabel" name="repo_label" placeholder="z. B. Custom Releases (Produktion)" required>
+            </div>
+            <button type="submit" class="btn btn-secondary btn-sm" style="height: 38px;">Hinzufügen</button>
+        </form>
+    </div>
+</div>
+
+<!-- Log Storage & Retention -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">Log-Aufbewahrung & Speicher</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Verwaltung von Ausführungsprotokollen und Bereinigung veralteter Log-Dateien.
+            </p>
+        </div>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border); border-radius: 6px; padding: 16px;">
+        <div>
+            <div style="font-weight: 600; color: #fff;">Manuelle Log-Bereinigung durchführen</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                Löscht alle Ausführungsprotokolle und markiert Datensätze als bereinigt für Läufe, die das job-spezifische Limit überschreiten.
+            </div>
+        </div>
+        <form action="/web/settings/retention/clean" method="POST" onsubmit="return confirm('Möchten Sie jetzt alle überzähligen alten Logs löschen?')">
+            <button type="submit" class="btn btn-secondary btn-sm" style="color: #f87171; border-color: rgba(239, 68, 68, 0.4);">
+                🗑️ Alte Logs jetzt bereinigen
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- CI/CD API Tokens -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2 class="card-title">CI/CD API Tokens</h2>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                Bearer Tokens für Jenkins Pipelines und automatisierte Deployments / Trigger.
+            </p>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('addTokenModal').style.display='flex'">
+            + Token Erstellen
+        </button>
+    </div>
+
+    {{if .Tokens}}
+    <table>
+        <thead>
+            <tr>
+                <th>Name / Verwendungszweck</th>
+                <th>Rolle</th>
+                <th>Erstellt am</th>
+                <th>Zuletzt verwendet</th>
+                <th style="text-align: right;">Aktionen</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Tokens}}
+            <tr>
+                <td style="font-weight: 600;">{{.Name}}</td>
+                <td><span class="badge badge-warning">{{.Role}}</span></td>
+                <td style="font-size: 12px; color: var(--text-muted);">
+                    {{.CreatedAt.Format "02.01.2006 15:04"}}
+                </td>
+                <td style="font-size: 12px; color: var(--text-muted);">
+                    {{if .LastUsedAt}}
+                        {{.LastUsedAt.Format "02.01.2006 15:04"}}
+                    {{else}}
+                        Nie
+                    {{end}}
+                </td>
+                <td style="text-align: right;">
+                    <form action="/web/tokens/delete" method="POST" style="display: inline;" onsubmit="return confirm('Token wirklich widerrufen?')">
+                        <input type="hidden" name="id" value="{{.ID}}">
+                        <button type="submit" class="btn btn-danger btn-sm">Widerrufen</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        <div style="text-align: center; padding: 32px; color: var(--text-muted);">
+            Bisher keine API-Tokens erstellt.
+        </div>
+    {{end}}
+</div>
+
+<!-- Modal: Token Erstellen -->
+<div id="addTokenModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+        <h3 style="margin-bottom: 16px; font-size: 18px;">Neuen API Token generieren</h3>
+        <form action="/web/tokens/create" method="POST">
+            <div class="form-group">
+                <label for="tokenName">Name / Verwendungszweck (z. B. 'jenkins-pipeline')</label>
+                <input type="text" id="tokenName" name="name" required>
+            </div>
+            <div class="form-group">
+                <label for="tokenRole">Berechtigung</label>
+                <select id="tokenRole" name="role" required>
+                    <option value="operator">Operator (Deploy & Run)</option>
+                    <option value="admin">Administrator (Vollzugriff)</option>
+                </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('addTokenModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Token Generieren</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleNexusAnonymous() {
+    const anonCheckbox = document.getElementById('nexusAnonymous');
+    const authFields = document.getElementById('nexusAuthFields');
+    const userField = document.getElementById('nexusUser');
+    const passField = document.getElementById('nexusPass');
+
+    if (!anonCheckbox || !authFields) return;
+
+    if (anonCheckbox.checked) {
+        authFields.style.display = 'none';
+        if (userField) userField.disabled = true;
+        if (passField) passField.disabled = true;
+    } else {
+        authFields.style.display = 'grid';
+        if (userField) userField.disabled = false;
+        if (passField) passField.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    toggleNexusAnonymous();
+});
+
+async function testNexusConnection() {
+    const btn = document.getElementById('btnTestNexus');
+    const resDiv = document.getElementById('nexusTestResult');
+    const url = document.getElementById('nexusBaseURL').value;
+    const isAnon = document.getElementById('nexusAnonymous') && document.getElementById('nexusAnonymous').checked;
+    const user = isAnon ? '' : (document.getElementById('nexusUser') ? document.getElementById('nexusUser').value : '');
+    const pass = isAnon ? '' : (document.getElementById('nexusPass') ? document.getElementById('nexusPass').value : '');
+
+    btn.disabled = true;
+    btn.innerText = 'Prüfe Verbindung...';
+    resDiv.style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/v1/nexus/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_url: url, username: user, password: pass })
+        });
+        const data = await resp.json();
+        resDiv.style.display = 'block';
+        if (data.success) {
+            resDiv.style.background = 'rgba(16, 185, 129, 0.15)';
+            resDiv.style.border = '1px solid var(--success)';
+            resDiv.style.color = '#34d399';
+            resDiv.innerText = '✓ Verbindung erfolgreich hergestellt! ' + (data.message ? '(' + data.message + ')' : '');
+        } else {
+            resDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+            resDiv.style.border = '1px solid var(--danger)';
+            resDiv.style.color = '#f87171';
+            resDiv.innerText = '✗ Verbindung fehlgeschlagen: ' + (data.message || 'Server nicht erreichbar oder Anmeldedaten ungültig');
+        }
+    } catch (e) {
+        resDiv.style.display = 'block';
+        resDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+        resDiv.style.border = '1px solid var(--danger)';
+        resDiv.style.color = '#f87171';
+        resDiv.innerText = '✗ Netzwerkfehler bei Anfrage: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.innerText = '⚡ Verbindung testen';
+    }
+}
+</script>
+{{end}}

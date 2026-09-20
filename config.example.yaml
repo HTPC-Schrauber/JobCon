@@ -1,0 +1,51 @@
+# ==============================================================================
+# JobCon Configuration Example (Linux)
+# ==============================================================================
+
+server:
+  bind: "0.0.0.0"
+  port: 8080
+  base_url: "http://localhost:8080"
+  trusted_proxies:
+    - "127.0.0.1/32"
+    - "10.0.0.0/8"
+
+tls:
+  enabled: false # Set true if JobCon terminates TLS natively
+  cert_file: "/etc/jobcon/tls/cert.pem"
+  key_file: "/etc/jobcon/tls/key.pem"
+
+auth:
+  mode: "local" # Options: "local" or "ldap"
+  session_secret_env: "JOBCON_SESSION_SECRET"
+  ldap:
+    enabled: false
+    host: "ad.intern.firma.de"
+    port: 636
+    use_ssl: true
+    insecure_skip_verify: false
+    bind_dn: "CN=jobcon_svc,OU=ServiceAccounts,DC=intern,DC=firma,DC=de"
+    bind_password_env: "JOBCON_LDAP_PASSWORD"
+    base_dn: "OU=Users,DC=intern,DC=firma,DC=de"
+    user_filter: "(&(objectClass=user)(sAMAccountName=%s))"
+    role_mappings:
+      admin_group: "CN=Talend_Admins,OU=Groups,DC=intern,DC=firma,DC=de"
+      operator_group: "CN=Talend_Operators,OU=Groups,DC=intern,DC=firma,DC=de"
+
+database:
+  path: "./data/jobcon.db"
+
+storage:
+  logs_dir: "./data/logs"
+  compress_completed: true
+
+nexus:
+  base_url: "https://nexus.intern.firma.de/repository"
+  username: "nexus_talend_reader"
+  password_env: "JOBCON_NEXUS_PASSWORD"
+
+ssh_defaults:
+  user: "talend"
+  key_path: "~/.ssh/id_ed25519"
+  timeout_seconds: 30
+  keepalive_interval_seconds: 30

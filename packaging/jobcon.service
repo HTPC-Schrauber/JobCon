@@ -1,0 +1,21 @@
+[Unit]
+Description=JobCon - Talend Deployment & Execution Engine
+After=network.target
+
+[Service]
+Type=simple
+User=jobcon
+Group=jobcon
+WorkingDirectory=/var/lib/jobcon
+ExecStart=/usr/local/bin/jobcon --config /etc/jobcon/config.yaml
+Restart=on-failure
+RestartSec=5s
+
+# Linux Security Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jobcon
+
+[Install]
+WantedBy=multi-user.target
