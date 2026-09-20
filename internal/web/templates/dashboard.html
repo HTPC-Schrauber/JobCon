@@ -1,17 +1,32 @@
 {{define "content"}}
-<!-- Top Metrics Bar -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
-    <div class="card" style="margin-bottom: 0; padding: 16px;">
-        <div style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">Gesamte Jobs</div>
-        <div style="font-size: 26px; font-weight: 700; margin-top: 4px; color: #fff;">{{.TotalCount}}</div>
+<!-- Top Telemetry Metrics Bar -->
+<div class="metrics-grid">
+    <div class="metric-card accent-primary">
+        <div>
+            <div class="metric-label">Gesamte Jobs</div>
+            <div class="metric-value">{{.TotalCount}}</div>
+        </div>
+        <div class="metric-icon-wrap" style="color: var(--primary);">
+            <svg class="icon icon-md"><use href="#icon-layers"></use></svg>
+        </div>
     </div>
-    <div class="card" style="margin-bottom: 0; padding: 16px;">
-        <div style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">Aktive Server</div>
-        <div style="font-size: 26px; font-weight: 700; margin-top: 4px; color: #60a5fa;">{{len .Servers}}</div>
+    <div class="metric-card accent-cyan">
+        <div>
+            <div class="metric-label">Aktive Server</div>
+            <div class="metric-value" style="color: var(--accent-cyan);">{{len .Servers}}</div>
+        </div>
+        <div class="metric-icon-wrap" style="color: var(--accent-cyan);">
+            <svg class="icon icon-md"><use href="#icon-server"></use></svg>
+        </div>
     </div>
-    <div class="card" style="margin-bottom: 0; padding: 16px;">
-        <div style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase;">Gruppen</div>
-        <div style="font-size: 26px; font-weight: 700; margin-top: 4px; color: #34d399;">{{len .DistinctGroups}}</div>
+    <div class="metric-card accent-green">
+        <div>
+            <div class="metric-label">Gruppen</div>
+            <div class="metric-value" style="color: var(--success);">{{len .DistinctGroups}}</div>
+        </div>
+        <div class="metric-icon-wrap" style="color: var(--success);">
+            <svg class="icon icon-md"><use href="#icon-folder"></use></svg>
+        </div>
     </div>
 </div>
 
@@ -25,14 +40,14 @@
             </p>
         </div>
         <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-            <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; user-select: none; margin: 0;">
+            <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); cursor: pointer; user-select: none; margin: 0; text-transform: none; font-weight: 500;">
                 <input type="checkbox" id="groupByCheckbox" {{if eq .GroupBy "group_id"}}checked{{end}} onchange="toggleGroupingCheckbox(this)">
                 <span>Nach Gruppen bündeln</span>
             </label>
 
-            <label style="font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; margin: 0;">
+            <label style="font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; margin: 0; text-transform: none; font-weight: 500;">
                 Zeilen:
-                <select name="page_size" form="filterForm" onchange="changePageSize(this.value)" style="width: auto; padding: 4px 8px; font-size: 12px; background: #0f172a; border: 1px solid var(--surface-border); border-radius: 4px; color: #fff;">
+                <select name="page_size" form="filterForm" onchange="changePageSize(this.value)" style="width: auto; padding: 4px 8px; font-size: 12px; background: #111; border: 1px solid var(--surface-border); border-radius: var(--radius-xs); color: #fff;">
                     <option value="10" {{if eq .PageSize 10}}selected{{end}}>10</option>
                     <option value="25" {{if eq .PageSize 25}}selected{{end}}>25</option>
                     <option value="50" {{if eq .PageSize 50}}selected{{end}}>50</option>
@@ -43,14 +58,15 @@
 
             {{if eq .User.Role "admin"}}
                 <button type="button" class="btn btn-primary btn-sm" onclick="openNewJobModal()">
-                    + Neuer Job Anlegen
+                    <svg class="icon icon-sm"><use href="#icon-plus"></use></svg>
+                    Neuer Job anlegen
                 </button>
             {{end}}
         </div>
     </div>
 
     <!-- Filter Form wrapping the Table -->
-    <form id="filterForm" method="GET" action="/">
+    <form id="filterForm" method="GET">
         <input type="hidden" name="page" id="pageInput" value="{{.CurrentPage}}">
         <input type="hidden" name="page_size" id="pageSizeInput" value="{{.PageSize}}">
         <input type="hidden" name="sort_by" id="sortByInput" value="{{.SortBy}}">
@@ -62,28 +78,31 @@
                 <thead>
                     <tr>
                         <th class="sortable" onclick="setSort('name')">
-                            Job-Name {{if eq .SortBy "name"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                            Job-Name {{if eq .SortBy "name"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('group_id')">
-                            Gruppe (GroupId) {{if eq .SortBy "group_id"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                            Gruppe (GroupId) {{if eq .SortBy "group_id"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('server')">
-                            Zielserver {{if eq .SortBy "server"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                            Zielserver {{if eq .SortBy "server"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('version')">
-                            Version {{if eq .SortBy "version"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                            Version {{if eq .SortBy "version"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('last_run')">
-                            Letzter Lauf {{if eq .SortBy "last_run"}}{{if eq .SortOrder "asc"}}▲{{else}}▼{{end}}{{end}}
+                            Letzter Lauf {{if eq .SortBy "last_run"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th style="text-align: right;">Aktionen</th>
                     </tr>
                     <tr class="table-filter-row">
                         <th>
                             <div style="position: relative; display: flex; align-items: center;">
-                                <input type="text" name="search" id="colSearchInput" value="{{.Search}}" placeholder="Job / Artefakt filtern..." class="col-filter-input" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitFilter();}">
+                                <svg class="icon icon-sm" style="position: absolute; left: 8px; color: var(--text-muted); pointer-events: none;"><use href="#icon-search"></use></svg>
+                                <input type="text" name="search" id="colSearchInput" value="{{.Search}}" placeholder="Job / Artefakt filtern..." class="col-filter-input" style="padding-left: 28px !important;" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitFilter();}">
                                 {{if .Search}}
-                                    <button type="button" onclick="clearSearch()" title="Suche leeren" style="position: absolute; right: 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 2px 4px;">✕</button>
+                                    <button type="button" onclick="clearSearch()" title="Suche leeren" style="position: absolute; right: 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; display: flex; align-items: center;">
+                                        <svg class="icon icon-sm"><use href="#icon-x"></use></svg>
+                                    </button>
                                 {{end}}
                             </div>
                         </th>
@@ -108,7 +127,8 @@
                         <th style="text-align: right;">
                             {{if or .Search .GroupID .ServerID}}
                                 <button type="button" class="btn btn-secondary btn-sm" onclick="resetFilters()" style="color: #f87171; padding: 2px 8px; font-size: 11px; white-space: nowrap;">
-                                    ✕ Reset
+                                    <svg class="icon icon-sm"><use href="#icon-x"></use></svg>
+                                    Reset
                                 </button>
                             {{end}}
                         </th>
@@ -123,7 +143,8 @@
                                 <tr class="group-header-row">
                                     <td colspan="6">
                                         <div class="group-header-content">
-                                            📁 <strong>{{if .GroupID}}{{.GroupID}}{{else}}<em>(Keine Gruppe)</em>{{end}}</strong>
+                                            <svg class="icon"><use href="#icon-folder"></use></svg>
+                                            <strong>{{if .GroupID}}{{.GroupID}}{{else}}<em>(Keine Gruppe)</em>{{end}}</strong>
                                         </div>
                                     </td>
                                 </tr>
@@ -137,7 +158,7 @@
                                         {{.ArtifactID}}
                                     </div>
                                 </td>
-                                <td style="font-size: 12px; color: #94a3b8; font-family: var(--mono);">
+                                <td style="font-size: 12px; color: #a1a1aa; font-family: var(--mono);">
                                     {{.GroupID}}
                                 </td>
                                 <td>
@@ -154,7 +175,8 @@
                                             </span>
                                             {{if .LastRunID}}
                                                 <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
-                                                    📄 Log
+                                                    <svg class="icon icon-sm"><use href="#icon-file-text"></use></svg>
+                                                    Log
                                                 </button>
                                             {{end}}
                                         </div>
@@ -170,10 +192,12 @@
                                 <td style="text-align: right;" onclick="event.stopPropagation()">
                                     <div style="display: inline-flex; gap: 6px;">
                                         <button type="button" class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openRunModal('{{.ID}}', '{{.Name}}', '{{.ActiveVersion}}', '{{.DefaultContext}}')">
-                                            ▶ Start
+                                            <svg class="icon icon-sm"><use href="#icon-play"></use></svg>
+                                            Start
                                         </button>
                                         <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openDeployModal('{{.ID}}', '{{.Name}}', '{{.ActiveVersion}}')">
-                                            🚀 Deploy
+                                            <svg class="icon icon-sm"><use href="#icon-upload"></use></svg>
+                                            Deploy
                                         </button>
                                     </div>
                                 </td>
@@ -185,7 +209,7 @@
                                 Keine Jobs gefunden, die den Kriterien entsprechen.
                                 {{if or .Search .GroupID .ServerID}}
                                     <div style="margin-top: 8px;">
-                                        <a href="javascript:resetFilters()" style="color: #f87171; text-decoration: underline;">Filter zurücksetzen</a>
+                                        <a href="javascript:resetFilters()" style="color: var(--primary); text-decoration: underline;">Filter zurücksetzen</a>
                                     </div>
                                 {{end}}
                             </td>
@@ -220,63 +244,78 @@
 <div id="jobSidepanel" class="sidepanel">
     <div class="sidepanel-header">
         <div>
-            <h3 id="spJobName" style="font-size: 18px; color: #fff; margin-bottom: 2px;">Job Details</h3>
+            <h3 id="spJobName" style="font-size: 17px; color: #fff; margin-bottom: 2px;">Job Details</h3>
             <div id="spJobID" style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);"></div>
         </div>
-        <button class="sidepanel-close" onclick="closeSidepanel()">✕</button>
+        <button class="sidepanel-close" onclick="closeSidepanel()">
+            <svg class="icon icon-md"><use href="#icon-x"></use></svg>
+        </button>
     </div>
 
     <div class="sidepanel-body">
         <!-- Quick Action Buttons -->
-        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--surface-border);">
-            <button id="spRunBtn" class="btn btn-primary btn-sm">▶ Starten</button>
-            <button id="spDeployBtn" class="btn btn-secondary btn-sm">🚀 Deployen</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--surface-border-subtle);">
+            <button id="spRunBtn" class="btn btn-primary btn-sm">
+                <svg class="icon icon-sm"><use href="#icon-play"></use></svg>
+                Starten
+            </button>
+            <button id="spDeployBtn" class="btn btn-secondary btn-sm">
+                <svg class="icon icon-sm"><use href="#icon-upload"></use></svg>
+                Deployen
+            </button>
             {{if eq .User.Role "admin"}}
-                <button id="spEditBtn" class="btn btn-secondary btn-sm">✏️ Bearbeiten</button>
-                <button id="spDeleteBtn" class="btn btn-danger btn-sm">🗑️ Löschen</button>
+                <button id="spEditBtn" class="btn btn-secondary btn-sm">
+                    <svg class="icon icon-sm"><use href="#icon-edit"></use></svg>
+                    Bearbeiten
+                </button>
+                <button id="spDeleteBtn" class="btn btn-danger btn-sm">
+                    <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                    Löschen
+                </button>
             {{end}}
         </div>
 
         <!-- Details List -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px;">
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Gruppe (GroupId)</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Gruppe (GroupId)</div>
                 <div id="spGroupID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Artefakt (ArtifactId)</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Artefakt (ArtifactId)</div>
                 <div id="spArtifactID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Aktive Version</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Aktive Version</div>
                 <div id="spActiveVersion" style="margin-top: 2px;"><span class="badge badge-success"></span></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Nexus Repository</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Nexus Repository</div>
                 <div id="spNexusRepo" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Ziel Execution Server</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Ziel Execution Server</div>
                 <div id="spServerName" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase;">Standard Context</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Standard Context</div>
                 <div id="spDefaultContext" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
         </div>
 
         <!-- History of Executions for this Job -->
-        <h4 style="font-size: 14px; margin-bottom: 12px; color: #cbd5e1;">Ausführungshistorie für diesen Job</h4>
+        <h4 style="font-size: 13px; margin-bottom: 12px; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">Ausführungshistorie</h4>
         <div id="spExecutionsList" style="margin-bottom: 20px;">Lade Historie...</div>
 
         <!-- Latest Log Preview -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h4 style="font-size: 14px; margin: 0; color: #cbd5e1;">Letztes Konsolen-Log</h4>
+            <h4 style="font-size: 13px; margin: 0; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">Letztes Konsolen-Log</h4>
             <button id="spLogExpandBtn" type="button" class="btn btn-secondary btn-sm" style="display: none; padding: 2px 8px; font-size: 11px;" onclick="expandSidepanelLog()">
-                ⛶ Großansicht
+                <svg class="icon icon-sm"><use href="#icon-maximize"></use></svg>
+                Großansicht
             </button>
         </div>
-        <div id="spLogPreview" style="background: #090d16; border: 1px solid var(--surface-border); border-radius: 6px; padding: 12px; font-family: var(--mono); font-size: 11px; color: #94a3b8; max-height: 250px; overflow-y: auto; white-space: pre-wrap;">
+        <div id="spLogPreview" style="background: #0a0a0a; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 12px; font-family: var(--mono); font-size: 11px; color: #a1a1aa; max-height: 250px; overflow-y: auto; white-space: pre-wrap;">
             Kein Log vorhanden
         </div>
     </div>
@@ -288,9 +327,10 @@
 <div id="editJobModal" class="modal-overlay" style="display: none;">
     <div class="modal" style="max-width: 600px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 id="editJobModalTitle" style="font-size: 18px; margin: 0;">Job bearbeiten</h3>
+            <h3 id="editJobModalTitle" style="font-size: 17px; margin: 0; color: #fff;">Job bearbeiten</h3>
             <button type="button" class="btn btn-secondary btn-sm" onclick="openNexusPicker('edit')">
-                🔍 Nexus durchsuchen...
+                <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
+                Nexus durchsuchen...
             </button>
         </div>
         <form id="editJobForm" action="" method="POST">
@@ -347,14 +387,14 @@
                 </div>
             </div>
             <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px;">
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-weight: normal;">
                     <input type="checkbox" id="editAllowConcurrent" name="allow_concurrent" value="1">
                     Parallele Läufe erlauben
                 </label>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('editJobModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Änderungen Speichern</button>
+                <button type="submit" class="btn btn-primary">Änderungen speichern</button>
             </div>
         </form>
     </div>
@@ -366,9 +406,10 @@
 <div id="newJobModal" class="modal-overlay" style="display: none;">
     <div class="modal" style="max-width: 650px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="font-size: 18px;">Neuen Talend Job anlegen</h3>
+            <h3 style="font-size: 17px; color: #fff; margin: 0;">Neuen Talend Job anlegen</h3>
             <button type="button" class="btn btn-secondary btn-sm" onclick="openNexusPicker('new')">
-                🔍 Nexus durchsuchen...
+                <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
+                Nexus durchsuchen...
             </button>
         </div>
         <form action="/web/jobs/create" method="POST">
@@ -415,14 +456,14 @@
                 </div>
             </div>
             <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px;">
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-weight: normal;">
                     <input type="checkbox" name="allow_concurrent" value="1">
                     Parallele Läufe erlauben
                 </label>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('newJobModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Job Speichern</button>
+                <button type="submit" class="btn btn-primary">Job speichern</button>
             </div>
         </form>
     </div>
@@ -434,8 +475,10 @@
 <div id="nexusPickerModal" class="modal-overlay" style="display: none; z-index: 2200;">
     <div class="modal" style="max-width: 700px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <h3 style="font-size: 18px; margin: 0;">Nexus Artefakt auswählen</h3>
-            <button type="button" class="sidepanel-close" onclick="closeNexusPicker()">✕</button>
+            <h3 style="font-size: 17px; margin: 0; color: #fff;">Nexus Artefakt auswählen</h3>
+            <button type="button" class="sidepanel-close" onclick="closeNexusPicker()">
+                <svg class="icon icon-md"><use href="#icon-x"></use></svg>
+            </button>
         </div>
         <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
             Wählen Sie ein Artefakt aus der Baumstruktur, um GroupId, ArtifactId und Version automatisch zu übernehmen.
@@ -456,7 +499,7 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
             <div style="font-size: 11px; color: var(--text-muted);">
-                Tipp: Einstellungen prüfen unter <a href="/settings/system" style="color: #60a5fa;" target="_blank">System &amp; Tokens</a>
+                Tipp: Einstellungen prüfen unter <a href="/settings/system" style="color: var(--primary);" target="_blank">System &amp; Tokens</a>
             </div>
             <button type="button" class="btn btn-secondary" onclick="closeNexusPicker()">Schließen</button>
         </div>
@@ -468,7 +511,7 @@
 <!-- ========================================================================= -->
 <div id="runModal" class="modal-overlay" style="display: none;">
     <div class="modal">
-        <h3 id="runModalTitle" style="margin-bottom: 16px; font-size: 18px;">Job starten</h3>
+        <h3 id="runModalTitle" style="margin-bottom: 16px; font-size: 17px; color: #fff;">Job starten</h3>
         <form id="runForm" action="/web/jobs/run" method="POST">
             <input type="hidden" id="runJobID" name="job_id">
             <div class="form-group">
@@ -485,7 +528,7 @@
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('runModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Jetzt Ausführen</button>
+                <button type="submit" class="btn btn-primary">Jetzt ausführen</button>
             </div>
         </form>
     </div>
@@ -496,7 +539,7 @@
 <!-- ========================================================================= -->
 <div id="deployModal" class="modal-overlay" style="display: none;">
     <div class="modal">
-        <h3 id="deployModalTitle" style="margin-bottom: 16px; font-size: 18px;">Release deployen</h3>
+        <h3 id="deployModalTitle" style="margin-bottom: 16px; font-size: 17px; color: #fff;">Release deployen</h3>
         <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 16px;">
             Lädt das Release aus Nexus herunter, entpackt es auf dem Zielserver und schaltet den Symlink 'current' um.
         </p>
@@ -508,7 +551,7 @@
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('deployModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Download & Deploy</button>
+                <button type="submit" class="btn btn-primary">Download &amp; Deploy</button>
             </div>
         </form>
     </div>
@@ -520,17 +563,25 @@
 <div id="quickLogModal" class="modal-overlay" style="display: none;">
     <div class="modal" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <h3 id="quickLogTitle" style="font-size: 16px;">Konsolen-Log</h3>
+            <h3 id="quickLogTitle" style="font-size: 16px; color: #fff;">Konsolen-Log</h3>
             <div style="display: flex; gap: 8px; align-items: center;">
-                <button type="button" class="btn btn-secondary btn-sm" onclick="copyQuickLog()">📋 Kopieren</button>
-                <button type="button" class="sidepanel-close" onclick="document.getElementById('quickLogModal').style.display='none'">✕</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="copyQuickLog()">
+                    <svg class="icon icon-sm"><use href="#icon-copy"></use></svg>
+                    Kopieren
+                </button>
+                <button type="button" class="sidepanel-close" onclick="document.getElementById('quickLogModal').style.display='none'">
+                    <svg class="icon icon-md"><use href="#icon-x"></use></svg>
+                </button>
             </div>
         </div>
-        <div id="quickLogContent" style="background: #090d16; border: 1px solid var(--surface-border); border-radius: 6px; padding: 16px; font-family: var(--mono); font-size: 12px; color: #cbd5e1; height: 550px; max-height: 65vh; overflow-y: auto; white-space: pre-wrap;">
+        <div id="quickLogContent" style="background: #0a0a0a; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 16px; font-family: var(--mono); font-size: 12px; color: #e4e4e7; height: 550px; max-height: 65vh; overflow-y: auto; white-space: pre-wrap;">
             Lade Log...
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-            <a id="quickLogLink" href="#" class="btn btn-secondary btn-sm">🖥️ Vollbild Konsole öffnen</a>
+            <a id="quickLogLink" href="#" class="btn btn-secondary btn-sm">
+                <svg class="icon icon-sm"><use href="#icon-terminal"></use></svg>
+                Vollbild-Konsole öffnen
+            </a>
             <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('quickLogModal').style.display='none'">Schließen</button>
         </div>
     </div>
@@ -669,12 +720,12 @@ function openSidepanel(jobId) {
                     let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
                     execs.forEach(e => {
                         const badgeClass = e.status === 'success' ? 'badge-success' : (e.status === 'failed' ? 'badge-danger' : 'badge-neutral');
-                        html += '<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 4px;">';
-                        html += '<div><span class="badge ' + badgeClass + '">' + e.status + '</span> <span style="font-size: 12px; margin-left: 6px;">' + e.version + '</span></div>';
+                        html += '<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--surface-border-subtle); padding: 6px 10px; border-radius: var(--radius-xs);">';
+                        html += '<div><span class="badge ' + badgeClass + '">' + e.status + '</span> <span style="font-size: 12px; margin-left: 6px; font-family: var(--mono);">' + e.version + '</span></div>';
                         html += '<div style="font-size: 11px; color: var(--text-muted);">' + new Date(e.started_at).toLocaleString('de-DE') + '</div>';
                         html += '<div style="display: flex; gap: 4px;">';
-                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="loadLogIntoSidepanel(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">Log</button>';
-                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="openQuickLog(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">⛶ Groß</button>';
+                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="loadLogIntoSidepanel(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">' + iconSvg('file-text', 'icon-sm') + ' Log</button>';
+                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="openQuickLog(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">' + iconSvg('maximize', 'icon-sm') + '</button>';
                         html += '</div>';
                         html += '</div>';
                     });
@@ -820,7 +871,7 @@ function fetchNexusTree() {
     const repo = document.getElementById('pickerRepoSelect').value;
     const query = (document.getElementById('pickerSearchInput').value || '').trim();
     const container = document.getElementById('nexusTreeContainer');
-    container.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">⏳ Lade Artefakte aus Nexus...</div>';
+    container.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">' + iconSvg('loader', 'icon-spin') + ' Lade Artefakte aus Nexus...</div>';
 
     fetch('/api/v1/nexus/search?repo=' + encodeURIComponent(repo) + '&query=' + encodeURIComponent(query))
         .then(async r => {
@@ -846,14 +897,14 @@ function fetchNexusTree() {
 
             let html = '';
             groups.forEach(g => {
-                html += '<div style="margin-bottom: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border); border-radius: 6px; padding: 8px;">';
-                html += '<div class="tree-group-title">📁 <strong>' + g.group + '</strong></div>';
+                html += '<div style="margin-bottom: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border-subtle); border-radius: var(--radius-xs); padding: 8px;">';
+                html += '<div class="tree-group-title">' + iconSvg('folder') + ' <strong>' + escapeHtml(g.group) + '</strong></div>';
                 g.artifacts.forEach(a => {
                     html += '<div class="tree-artifact-item" style="padding-left: 12px; margin-top: 6px;">';
-                    html += '<div class="tree-artifact-title">📦 ' + a.artifact_id + '</div>';
+                    html += '<div class="tree-artifact-title">' + iconSvg('package') + ' ' + escapeHtml(a.artifact_id) + '</div>';
                     html += '<div class="tree-versions-list" style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; padding-left: 20px;">';
                     a.versions.forEach(v => {
-                        html += '<span class="tree-version-badge" style="cursor: pointer; background: #1e293b; border: 1px solid #334155; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #34d399;" onclick="selectNexusArtifact(\'' + g.group + '\', \'' + a.artifact_id + '\', \'' + v + '\', \'' + repo + '\')">v' + v + '</span>';
+                        html += '<span class="tree-version-badge" onclick="selectNexusArtifact(\'' + g.group + '\', \'' + a.artifact_id + '\', \'' + v + '\', \'' + repo + '\')">v' + escapeHtml(v) + '</span>';
                     });
                     html += '</div></div>';
                 });
@@ -862,11 +913,11 @@ function fetchNexusTree() {
             container.innerHTML = html;
         })
         .catch(err => {
-            container.innerHTML = '<div style="color: #f87171; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; font-size: 13px;">' +
-                '<div style="font-weight: 600; margin-bottom: 6px;">⚠️ Nexus nicht erreichbar</div>' +
-                '<div style="margin-bottom: 8px;">' + err.message + '</div>' +
+            container.innerHTML = '<div style="color: #f87171; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-xs); font-size: 13px;">' +
+                '<div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">' + iconSvg('alert-triangle') + ' Nexus nicht erreichbar</div>' +
+                '<div style="margin-bottom: 8px;">' + escapeHtml(err.message) + '</div>' +
                 '<div style="font-size: 11px; color: var(--text-muted);">' +
-                'Prüfen Sie Basis-URL und Anmeldedaten unter <a href="/settings/system" target="_blank" style="color: #60a5fa; text-decoration: underline;">Einstellungen &gt; System</a>' +
+                'Prüfen Sie Basis-URL und Anmeldedaten unter <a href="/settings/system" target="_blank" style="color: var(--primary); text-decoration: underline;">Einstellungen &gt; System</a>' +
                 '</div>' +
                 '</div>';
         });

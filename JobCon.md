@@ -120,15 +120,18 @@ Auf den Linux-Zielservern liegt die Ausführungslogik in zwei standardisierten B
         │   │   └── {job_name}/
         │   │       ├── {job_name}_run.sh
         │   │       └── ...
-        │   └── 1.1.0/
-        └── current -> releases/1.1.0/
+        │   ├── 1.1.0/
+        │   └── 1.2.0/
+        ├── current   -> releases/1.2.0/   # Aktive Version
+        ├── current-1 -> releases/1.1.0/   # Vorherige Version (Retention)
+        └── current-2 -> releases/1.0.0/   # Vor-Vorherige Version (Retention)
 ```
 
 ### 3.2 Das Universal-Skript: `/opt/talend/scripts/jobcon_ctl.sh`
 Nimmt alle Parameter via CLI-Argumente entgegen (kein Rückkanal zu JobCon nötig).
 
 #### Befehle:
-1. **`deploy`** – Lädt Release herunter, entpackt versioniert und aktualisiert den Symlink:
+1. **`deploy`** – Lädt Release herunter, entpackt versioniert, rotiert die Generations-Symlinks und bereinigt unverlinkte Versionen:
    ```bash
    /opt/talend/scripts/jobcon_ctl.sh deploy \
        --job "sync_sap_kunden" \
@@ -140,8 +143,8 @@ Nimmt alle Parameter via CLI-Argumente entgegen (kein Rückkanal zu JobCon nöti
      1. Prüft, ob `/opt/talend/jobs/{job}/releases/{version}` bereits existiert (falls ja: Download überspringen).
      2. Download via `curl` in temporären Ordner (`releases/.tmp_{version}`).
      3. Entpacken des ZIP-Archivs und Setzen der Dateirechte (`chmod +x`).
-     4. Atomares Umschalten des Symlinks: `ln -sfn "releases/${version}" "/opt/talend/jobs/${job}/current"`.
-     5. Version-Retention: Löscht die ältesten Releases und behält die letzten `--keep` Versionen.
+     4. Generations-Symlink-Rotation: Aktualisiert die Symlink-Kette (`current`, `current-1`, `current-2`, ...) bis zu `--keep` Versionen ohne Duplikate.
+     5. Version-Retention: Löscht alle Release-Ordner in `releases/`, auf die kein aktiver Symlink zeigt (`rm -rf`). Überzählige `current-*` Symlinks jenseits `--keep` werden entfernt.
 
 2. **`run`** – Führt den Job aus:
    ```bash
@@ -274,6 +277,9 @@ CREATE TABLE servers (
     port INTEGER NOT NULL DEFAULT 22,
     user TEXT NOT NULL DEFAULT 'talend',
     ssh_key_path TEXT NOT NULL,            -- Pfad zum Private Key auf JobCon-Host
+    jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs',       -- Konfigurierbares Jobs-Verzeichnis
+    scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts', -- Konfigurierbares Scripte-Verzeichnis
+    keep_releases INTEGER NOT NULL DEFAULT 3,               -- Vorgehaltene Release-Versionen (Default: 3)
     status TEXT NOT NULL DEFAULT 'unknown',-- 'online', 'offline', 'unknown'
     last_checked_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -395,8 +401,11 @@ Das UI wird via Go `embed.FS` vollständig in das Single-Binary kompiliert und b
    * Suchfeld, Auto-Scroll-Pausierung und „Abort Job“-Button.
 7. **Einstellungsdialog (`/settings` - nur für Rolle `admin`):**
    * **Reiter „Execution Server“ (`/settings/servers`):**
-     * Server anlegen/bearbeiten (Host, Port, User, SSH-Key-Pfad).
-     * **Button „Verbindung testen“:** Prüft SSH-Erreichbarkeit, Latenz und Talend-Pfade direkt via HTMX.
+     * **Server-Sidepanel:** Klick auf eine Serverzeile öffnet ein interaktives Sidepanel mit Statusdiagnose (Erreichbarkeit, Verzeichnisse, installierte Scripte) und Liste der zugeordneten Jobs.
+     * **Konfigurierbare Verzeichnisse & Release-Retention:** `jobs_dir` (Default: `/opt/talend/jobs`), `scripts_dir` (Default: `/opt/talend/scripts`) und `keep_releases` (Anzahl aufzubewahrender Versionen via Generations-Symlinks, Default: `3`) pro Server anpassbar.
+     * **Automatisches SSH-Setup („Scripte bereitstellen“):** Legt Zielverzeichnisse per SSH an (`mkdir -p`) und installiert die eingebetteten Controller-Scripte (`jobcon_ctl.sh`, `run_job.sh`) mit Rechten 0755.
+     * **Sicheres Löschen:** Prüft verknüpfte Jobs; erfordert bei vorhandenen Jobs die Auswahl eines Zielservers zur atomaren Umschaltung vor dem Löschen.
+     * **Button „Verbindung testen“:** Prüft SSH-Erreichbarkeit, Latenz und Vorhandensein der Zielverzeichnisse/Scripte.
    * **Reiter „Benutzerverwaltung“ (`/settings/users`):**
      * Benutzer anlegen, Passwörter ändern (`bcrypt`), Rollen zuweisen (`admin`, `operator`, `viewer`).
    * **Reiter „System & Tokens“ (`/settings/system`):**
@@ -550,6 +559,14 @@ WantedBy=multi-user.target
    * Slide-Out Sidepanel für Job-Details und Historie mit nahtloser Log-Großansicht.
    * Vollständig klickbare Tabellenzeilen (`.job-row`) und saubere Modalführung (`z-index: 2000`).
    * Dedizierte `/executions` Historienseite und manuelle Log-Retention-Bereinigung.
-6. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
+6. **Phase 5b: Erweitertes Execution-Server Management [Abgeschlossen]**
+   * Interaktives Sidepanel für Execution Server mit Statusdiagnose und Job-Zugehörigkeiten.
+   * Server-spezifische Jobs- (`jobs_dir`) und Scripte-Verzeichnisse (`scripts_dir`) in DB und UI.
+   * Automatisches Zielserver-Setup via SSH: Einbetten (`//go:embed`) und Verteilen von `jobcon_ctl.sh` und `run_job.sh` mit Rechten 0755.
+   * Sicheres Löschen von Servern mit Abhängigkeitsprüfung und atomarer Job-Migration auf alternative Zielserver.
+7. **Phase 5c: Nexus 3 Pfad-Normalisierung & Download-Robustheit [Abgeschlossen]**
+   * Normalisierung von Nexus 3 Maven-Repository URLs: Trennung von REST-API-Aufrufen (`/service/rest/v1/...` an Host-Root) und Artefakt-Downloads (`/repository/{repo}/...`).
+   * Robuste Unterstützung sowohl für Basis-URLs mit als auch ohne `/repository`-Suffix.
+8. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
    * Implementierung des LDAP-Authenticators (`go-ldap/ldap/v3`).
    * Reverse Proxy & TLS-Verifikation, systemd Deployment.

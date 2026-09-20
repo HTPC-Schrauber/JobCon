@@ -1,8 +1,17 @@
 {{define "content"}}
 <div class="tabs">
-    <a href="/settings/servers" class="tab">Execution Server</a>
-    <a href="/settings/users" class="tab active">Benutzerverwaltung</a>
-    <a href="/settings/system" class="tab">System & Tokens</a>
+    <a href="/settings/servers" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-server"></use></svg>
+        Execution Server
+    </a>
+    <a href="/settings/users" class="tab active">
+        <svg class="icon icon-sm"><use href="#icon-users"></use></svg>
+        Benutzerverwaltung
+    </a>
+    <a href="/settings/system" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-settings"></use></svg>
+        System &amp; Tokens
+    </a>
 </div>
 
 <div class="card">
@@ -14,62 +23,66 @@
             </p>
         </div>
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('addUserModal').style.display='flex'">
-            + Benutzer Anlegen
+            <svg class="icon icon-sm"><use href="#icon-plus"></use></svg>
+            Benutzer anlegen
         </button>
     </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th>Benutzername</th>
-                <th>Anzeigename</th>
-                <th>Rolle</th>
-                <th>Quelle</th>
-                <th>Status</th>
-                <th>Erstellt am</th>
-                <th>Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .Users}}
-            <tr>
-                <td style="font-weight: 600; font-family: var(--mono);">{{.Username}}</td>
-                <td>{{.DisplayName}}</td>
-                <td>
-                    {{if eq .Role "admin"}}
-                        <span class="badge badge-danger">Admin</span>
-                    {{else if eq .Role "operator"}}
-                        <span class="badge badge-warning">Operator</span>
-                    {{else}}
-                        <span class="badge badge-neutral">Viewer</span>
-                    {{end}}
-                </td>
-                <td><span class="badge badge-neutral">{{.AuthSource}}</span></td>
-                <td>
-                    {{if .IsActive}}
-                        <span class="badge badge-success">Aktiv</span>
-                    {{else}}
-                        <span class="badge badge-danger">Gesperrt</span>
-                    {{end}}
-                </td>
-                <td style="font-size: 12px; color: var(--text-muted);">
-                    {{.CreatedAt.Format "02.01.2006"}}
-                </td>
-                <td>
-                    <button class="btn btn-secondary btn-sm" onclick="openPasswordModal('{{.ID}}', '{{.Username}}')">
-                        Passwort ändern
-                    </button>
-                </td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Benutzername</th>
+                    <th>Anzeigename</th>
+                    <th>Rolle</th>
+                    <th>Quelle</th>
+                    <th>Status</th>
+                    <th>Erstellt am</th>
+                    <th style="text-align: right;">Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Users}}
+                <tr>
+                    <td style="font-weight: 600; font-family: var(--mono); color: #fff;">{{.Username}}</td>
+                    <td>{{.DisplayName}}</td>
+                    <td>
+                        {{if eq .Role "admin"}}
+                            <span class="badge badge-danger">Admin</span>
+                        {{else if eq .Role "operator"}}
+                            <span class="badge badge-warning">Operator</span>
+                        {{else}}
+                            <span class="badge badge-neutral">Viewer</span>
+                        {{end}}
+                    </td>
+                    <td><span class="badge badge-neutral">{{.AuthSource}}</span></td>
+                    <td>
+                        {{if .IsActive}}
+                            <span class="badge badge-success">Aktiv</span>
+                        {{else}}
+                            <span class="badge badge-danger">Gesperrt</span>
+                        {{end}}
+                    </td>
+                    <td style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
+                        {{.CreatedAt.Format "02.01.2006"}}
+                    </td>
+                    <td style="text-align: right;">
+                        <button class="btn btn-secondary btn-sm" onclick="openPasswordModal('{{.ID}}', '{{.Username}}')">
+                            <svg class="icon icon-sm"><use href="#icon-key"></use></svg>
+                            Passwort ändern
+                        </button>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <!-- Modal: Benutzer anlegen -->
 <div id="addUserModal" class="modal-overlay" style="display: none;">
     <div class="modal">
-        <h3 style="margin-bottom: 16px; font-size: 18px;">Neuen Benutzer anlegen</h3>
+        <h3 style="margin-bottom: 16px; font-size: 17px; color: #fff;">Neuen Benutzer anlegen</h3>
         <form action="/web/users/create" method="POST">
             <div class="form-group">
                 <label for="newUsername">Benutzername</label>
@@ -86,9 +99,9 @@
             <div class="form-group">
                 <label for="newRole">Rolle</label>
                 <select id="newRole" name="role" required>
-                    <option value="viewer">Viewer (Nur Lesen & Logs)</option>
-                    <option value="operator">Operator (Jobs starten, deployen & abbrechen)</option>
-                    <option value="admin">Administrator (Vollzugriff & Einstellungen)</option>
+                    <option value="viewer">Viewer (Nur Lesen &amp; Logs)</option>
+                    <option value="operator">Operator (Jobs starten, deployen &amp; abbrechen)</option>
+                    <option value="admin">Administrator (Vollzugriff &amp; Einstellungen)</option>
                 </select>
             </div>
             <div class="form-group">
@@ -97,7 +110,7 @@
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('addUserModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Benutzer Erstellen</button>
+                <button type="submit" class="btn btn-primary">Benutzer erstellen</button>
             </div>
         </form>
     </div>
@@ -106,7 +119,7 @@
 <!-- Modal: Passwort ändern -->
 <div id="pwdModal" class="modal-overlay" style="display: none;">
     <div class="modal">
-        <h3 id="pwdModalTitle" style="margin-bottom: 16px; font-size: 18px;">Passwort ändern</h3>
+        <h3 id="pwdModalTitle" style="margin-bottom: 16px; font-size: 17px; color: #fff;">Passwort ändern</h3>
         <form id="pwdForm" action="" method="POST">
             <div class="form-group">
                 <label for="editPassword">Neues Passwort</label>

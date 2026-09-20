@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("record not found")
+	ErrNotFound    = errors.New("record not found")
+	ErrServerInUse = errors.New("server is still in use by configured jobs")
 )
 
 type Server struct {
@@ -20,6 +21,9 @@ type Server struct {
 	User          string     `json:"user"`
 	SSHKeyPath    string     `json:"ssh_key_path"`
 	Status        string     `json:"status"` // "online", "offline", "unknown"
+	JobsDir       string     `json:"jobs_dir"`
+	ScriptsDir    string     `json:"scripts_dir"`
+	KeepReleases  int        `json:"keep_releases"`
 	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
@@ -127,17 +131,26 @@ func (db *DB) CreateServer(s *Server) error {
 	if s.Status == "" {
 		s.Status = "unknown"
 	}
+	if s.JobsDir == "" {
+		s.JobsDir = "/opt/talend/jobs"
+	}
+	if s.ScriptsDir == "" {
+		s.ScriptsDir = "/opt/talend/scripts"
+	}
+	if s.KeepReleases <= 0 {
+		s.KeepReleases = 3
+	}
 
-	query := `INSERT INTO servers (id, name, host, port, user, ssh_key_path, status, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := db.Exec(query, s.ID, s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.Status, s.CreatedAt, s.UpdatedAt)
+	query := `INSERT INTO servers (id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, keep_releases, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := db.Exec(query, s.ID, s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.Status, s.JobsDir, s.ScriptsDir, s.KeepReleases, s.CreatedAt, s.UpdatedAt)
 	return err
 }
 
 func (db *DB) GetServer(id string) (*Server, error) {
-	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, status, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
+	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, keep_releases, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
 	var s Server
-	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -145,7 +158,7 @@ func (db *DB) GetServer(id string) (*Server, error) {
 }
 
 func (db *DB) ListServers() ([]Server, error) {
-	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, status, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
+	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, keep_releases, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +167,7 @@ func (db *DB) ListServers() ([]Server, error) {
 	var servers []Server
 	for rows.Next() {
 		var s Server
-		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		servers = append(servers, s)
@@ -164,8 +177,17 @@ func (db *DB) ListServers() ([]Server, error) {
 
 func (db *DB) UpdateServer(s *Server) error {
 	s.UpdatedAt = time.Now()
-	res, err := db.Exec(`UPDATE servers SET name = ?, host = ?, port = ?, user = ?, ssh_key_path = ?, updated_at = ? WHERE id = ?`,
-		s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.UpdatedAt, s.ID)
+	if s.JobsDir == "" {
+		s.JobsDir = "/opt/talend/jobs"
+	}
+	if s.ScriptsDir == "" {
+		s.ScriptsDir = "/opt/talend/scripts"
+	}
+	if s.KeepReleases <= 0 {
+		s.KeepReleases = 3
+	}
+	res, err := db.Exec(`UPDATE servers SET name = ?, host = ?, port = ?, user = ?, ssh_key_path = ?, jobs_dir = ?, scripts_dir = ?, keep_releases = ?, updated_at = ? WHERE id = ?`,
+		s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.JobsDir, s.ScriptsDir, s.KeepReleases, s.UpdatedAt, s.ID)
 	if err != nil {
 		return err
 	}
@@ -183,7 +205,40 @@ func (db *DB) UpdateServerStatus(id, status string) error {
 	return err
 }
 
+func (db *DB) GetJobsByServerID(serverID string) ([]Job, error) {
+	rows, err := db.Query(`
+		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.created_at, j.updated_at
+		FROM jobs j
+		LEFT JOIN servers s ON j.server_id = s.id
+		WHERE j.server_id = ?
+		ORDER BY j.name ASC`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var j Job
+		var allowConcurrent int
+		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			return nil, err
+		}
+		j.AllowConcurrent = allowConcurrent == 1
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 func (db *DB) DeleteServer(id string) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE server_id = ?`, id).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrServerInUse
+	}
+
 	res, err := db.Exec(`DELETE FROM servers WHERE id = ?`, id)
 	if err != nil {
 		return err
@@ -193,6 +248,51 @@ func (db *DB) DeleteServer(id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (db *DB) DeleteServerWithJobReassignment(serverID string, targetServerID string) error {
+	if serverID == targetServerID {
+		return errors.New("target server must be different from server being deleted")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if targetServerID != "" {
+		var dummy string
+		if err := tx.QueryRow(`SELECT id FROM servers WHERE id = ?`, targetServerID).Scan(&dummy); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("target server not found")
+			}
+			return err
+		}
+		now := time.Now()
+		if _, err := tx.Exec(`UPDATE jobs SET server_id = ?, updated_at = ? WHERE server_id = ?`, targetServerID, now, serverID); err != nil {
+			return err
+		}
+	} else {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM jobs WHERE server_id = ?`, serverID).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			return ErrServerInUse
+		}
+	}
+
+	res, err := tx.Exec(`DELETE FROM servers WHERE id = ?`, serverID)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return tx.Commit()
 }
 
 // -----------------------------------------------------------------------------

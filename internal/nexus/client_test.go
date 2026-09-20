@@ -98,6 +98,28 @@ func TestNexusConnectionAnonymous(t *testing.T) {
 	}
 }
 
+func TestNewClientURLNormalization(t *testing.T) {
+	c1 := NewClient("http://nexus.intern:8081", "user", "pass")
+	if c1.BaseURL != "http://nexus.intern:8081" {
+		t.Errorf("expected http://nexus.intern:8081, got %s", c1.BaseURL)
+	}
+
+	c2 := NewClient("http://nexus.intern:8081/", "user", "pass")
+	if c2.BaseURL != "http://nexus.intern:8081" {
+		t.Errorf("expected http://nexus.intern:8081, got %s", c2.BaseURL)
+	}
+
+	c3 := NewClient("http://nexus.intern:8081/repository", "user", "pass")
+	if c3.BaseURL != "http://nexus.intern:8081" {
+		t.Errorf("expected http://nexus.intern:8081, got %s", c3.BaseURL)
+	}
+
+	c4 := NewClient("http://nexus.intern:8081/repository/", "user", "pass")
+	if c4.BaseURL != "http://nexus.intern:8081" {
+		t.Errorf("expected http://nexus.intern:8081, got %s", c4.BaseURL)
+	}
+}
+
 func TestSanitizeNexusQuery(t *testing.T) {
 	tests := []struct {
 		input    string

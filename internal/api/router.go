@@ -69,6 +69,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/v1/servers/{id}", roleWrap(auth.RoleAdmin, a.handleUpdateServer))
 	mux.Handle("DELETE /api/v1/servers/{id}", roleWrap(auth.RoleAdmin, a.handleDeleteServer))
 	mux.Handle("POST /api/v1/servers/{id}/test", roleWrap(auth.RoleAdmin, a.handleTestServer))
+	mux.Handle("POST /api/v1/servers/{id}/setup", roleWrap(auth.RoleAdmin, a.handleSetupServer))
+	mux.Handle("GET /api/v1/servers/{id}/usage", roleWrap(auth.RoleAdmin, a.handleServerUsage))
 
 	// Users (Admin only)
 	mux.Handle("GET /api/v1/users", roleWrap(auth.RoleAdmin, a.handleListUsers))

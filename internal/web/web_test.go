@@ -407,6 +407,203 @@ func TestDashboardGroupingAndColumnFilters(t *testing.T) {
 	if !strings.Contains(bodySearch, "Reset") {
 		t.Errorf("expected Reset button when filter is active")
 	}
+
+	// 3. Test /jobs and /dashboard routes with and without filters
+	jobURLs := []string{
+		"/jobs",
+		"/jobs?search=Alpha",
+		"/jobs?group_id=group.sales",
+		"/dashboard",
+		"/dashboard?search=Alpha",
+	}
+	for _, u := range jobURLs {
+		r := httptest.NewRequest("GET", u, nil)
+		r.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for %s, got %d", u, w.Code)
+		}
+	}
+}
+
+func TestWebServerSidepanelAndCRUD(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test_web_server.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, _ := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	localAuth := auth.NewLocalAuthenticator(database)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(localAuth, database, sessions)
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	// Admin user
+	adminUser := &db.User{
+		ID:          "admin-1",
+		Username:    "admin",
+		DisplayName: "Administrator",
+		Role:        auth.RoleAdmin,
+		IsActive:    true,
+	}
+	_ = database.CreateUser(adminUser)
+	token := sessions.CreateSession(adminUser)
+
+	// 1. GET /settings/servers (empty)
+	req := httptest.NewRequest("GET", "/settings/servers", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /settings/servers, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "serverSidepanel") {
+		t.Errorf("expected serverSidepanel in HTML")
+	}
+	if !strings.Contains(body, "editServerModal") {
+		t.Errorf("expected editServerModal in HTML")
+	}
+	if !strings.Contains(body, "deleteServerModal") {
+		t.Errorf("expected deleteServerModal in HTML")
+	}
+
+	// 2. Create Server 1 via POST /web/servers/create
+	form := url.Values{
+		"id":            {"srv-web-1"},
+		"name":          {"Production Node 1"},
+		"host":          {"10.0.1.1"},
+		"port":          {"22"},
+		"user":          {"talend"},
+		"ssh_key_path":  {"/root/.ssh/id_rsa"},
+		"jobs_dir":      {"/custom/talend/jobs"},
+		"scripts_dir":   {"/custom/talend/scripts"},
+		"keep_releases": {"4"},
+	}
+	req = httptest.NewRequest("POST", "/web/servers/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+
+	srv1, err := database.GetServer("srv-web-1")
+	if err != nil {
+		t.Fatalf("failed to get srv-web-1: %v", err)
+	}
+	if srv1.JobsDir != "/custom/talend/jobs" || srv1.ScriptsDir != "/custom/talend/scripts" || srv1.KeepReleases != 4 {
+		t.Errorf("expected custom dirs and keep_releases=4, got jobs=%s scripts=%s keep_releases=%d", srv1.JobsDir, srv1.ScriptsDir, srv1.KeepReleases)
+	}
+
+	// Create Server 2
+	srv2 := &db.Server{
+		ID:         "srv-web-2",
+		Name:       "Production Node 2",
+		Host:       "10.0.1.2",
+		Port:       22,
+		User:       "talend",
+		SSHKeyPath: "/root/.ssh/id_rsa",
+	}
+	_ = database.CreateServer(srv2)
+
+	// 3. Update Server 1 via POST /web/servers/srv-web-1/update
+	updateForm := url.Values{
+		"name":          {"Production Node 1 Renamed"},
+		"host":          {"10.0.1.100"},
+		"port":          {"2222"},
+		"user":          {"talend_admin"},
+		"ssh_key_path":  {"/root/.ssh/id_ed25519"},
+		"jobs_dir":      {"/opt/talend/jobs"},
+		"scripts_dir":   {"/opt/talend/scripts"},
+		"keep_releases": {"2"},
+	}
+	req = httptest.NewRequest("POST", "/web/servers/srv-web-1/update", strings.NewReader(updateForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect for update, got %d", rec.Code)
+	}
+
+	srv1Updated, _ := database.GetServer("srv-web-1")
+	if srv1Updated.Name != "Production Node 1 Renamed" || srv1Updated.Port != 2222 || srv1Updated.User != "talend_admin" || srv1Updated.KeepReleases != 2 {
+		t.Errorf("server 1 update failed: %+v", srv1Updated)
+	}
+
+	// 4. Create Job on Server 1
+	job := &db.Job{
+		ID:            "job-web-1",
+		Name:          "Web Test Job",
+		ServerID:      "srv-web-1",
+		GroupID:       "org.test",
+		ArtifactID:    "web_job",
+		ActiveVersion: "1.0",
+		NexusRepo:     "releases",
+	}
+	_ = database.CreateJob(job)
+
+	// 5. Delete Server 1 without target_server_id -> fails with error redirect
+	delForm := url.Values{}
+	req = httptest.NewRequest("POST", "/web/servers/srv-web-1/delete", strings.NewReader(delForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "error=") {
+		t.Errorf("expected error in redirect location when deleting server with jobs, got %s", loc)
+	}
+
+	// 6. Delete Server 1 with target_server_id=srv-web-2 -> succeeds, jobs migrated
+	delFormReassign := url.Values{
+		"target_server_id": {"srv-web-2"},
+	}
+	req = httptest.NewRequest("POST", "/web/servers/srv-web-1/delete", strings.NewReader(delFormReassign.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+	locSuccess := rec.Header().Get("Location")
+	if !strings.Contains(locSuccess, "success=") {
+		t.Errorf("expected success in redirect location, got %s", locSuccess)
+	}
+
+	// Verify Server 1 is deleted
+	if _, err := database.GetServer("srv-web-1"); err != db.ErrNotFound {
+		t.Errorf("expected srv-web-1 to be deleted, got %v", err)
+	}
+
+	// Verify Job is now assigned to Server 2
+	jMoved, _ := database.GetJob("job-web-1")
+	if jMoved.ServerID != "srv-web-2" {
+		t.Errorf("expected job on srv-web-2, got %s", jMoved.ServerID)
+	}
 }
 
 

@@ -8,14 +8,17 @@
             </p>
         </div>
         <div style="display: flex; gap: 8px;">
-            <a href="/executions" class="btn btn-secondary btn-sm">Aktualisieren</a>
+            <a href="/executions" class="btn btn-secondary btn-sm">
+                <svg class="icon icon-sm"><use href="#icon-refresh"></use></svg>
+                Aktualisieren
+            </a>
         </div>
     </div>
 
     <!-- Filter Bar -->
-    <div class="filter-bar" style="background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 6px; border: 1px solid var(--surface-border);">
+    <div class="filter-bar" style="background: rgba(255, 255, 255, 0.02); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--surface-border-subtle); margin-bottom: 16px;">
         <div class="filter-group">
-            <span style="font-size: 12px; color: var(--text-muted);">Status filtern:</span>
+            <span style="font-size: 12px; color: var(--text-muted); font-weight: 500;">Status filtern:</span>
             <a href="/executions" class="page-link {{if eq .FilterStatus ""}}active{{end}}">Alle</a>
             <a href="/executions?status=running" class="page-link {{if eq .FilterStatus "running"}}active{{end}}">Läuft</a>
             <a href="/executions?status=success" class="page-link {{if eq .FilterStatus "success"}}active{{end}}">Erfolg</a>
@@ -25,67 +28,70 @@
     </div>
 
     {{if .Executions}}
-    <table>
-        <thead>
-            <tr>
-                <th>Status</th>
-                <th>Job-Name</th>
-                <th>Aktion</th>
-                <th>Version</th>
-                <th>Dauer</th>
-                <th>Gestartet am</th>
-                <th>Ausgelöst durch</th>
-                <th>Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .Executions}}
-            <tr>
-                <td>
-                    {{if eq .Status "success"}}
-                        <span class="badge badge-success">Erfolg</span>
-                    {{else if eq .Status "failed"}}
-                        <span class="badge badge-danger">Fehler</span>
-                    {{else if eq .Status "running"}}
-                        <span class="badge badge-running">Läuft</span>
-                    {{else if eq .Status "aborted"}}
-                        <span class="badge badge-warning">Abgebrochen</span>
-                    {{else}}
-                        <span class="badge badge-neutral">{{.Status}}</span>
-                    {{end}}
-                </td>
-                <td>
-                    <div style="font-weight: 600;">{{.JobName}}</div>
-                    <div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">{{.ID}}</div>
-                </td>
-                <td>
-                    {{if eq .Action "deploy"}}
-                        <span style="color: #60a5fa; font-weight: 500;">Deploy</span>
-                    {{else}}
-                        <span>Ausführung</span>
-                    {{end}}
-                </td>
-                <td><span class="badge badge-neutral">{{.Version}}</span></td>
-                <td style="font-size: 12px; color: var(--text-muted);">
-                    {{if .DurationMS}}
-                        {{.DurationMS}} ms
-                    {{else}}
-                        -
-                    {{end}}
-                </td>
-                <td style="font-size: 12px; color: var(--text-muted);">
-                    {{.StartedAt.Format "02.01.2006 15:04:05"}}
-                </td>
-                <td style="font-size: 12px;">{{.TriggeredBy}}</td>
-                <td>
-                    <a href="/executions/{{.ID}}" class="btn btn-secondary btn-sm">
-                        🖥️ Konsole & Log
-                    </a>
-                </td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Job-Name</th>
+                    <th>Aktion</th>
+                    <th>Version</th>
+                    <th>Dauer</th>
+                    <th>Gestartet am</th>
+                    <th>Ausgelöst durch</th>
+                    <th style="text-align: right;">Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Executions}}
+                <tr>
+                    <td>
+                        {{if eq .Status "success"}}
+                            <span class="badge badge-success">Erfolg</span>
+                        {{else if eq .Status "failed"}}
+                            <span class="badge badge-danger">Fehler</span>
+                        {{else if eq .Status "running"}}
+                            <span class="badge badge-running">Läuft</span>
+                        {{else if eq .Status "aborted"}}
+                            <span class="badge badge-warning">Abgebrochen</span>
+                        {{else}}
+                            <span class="badge badge-neutral">{{.Status}}</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #fff;">{{.JobName}}</div>
+                        <div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">{{.ID}}</div>
+                    </td>
+                    <td>
+                        {{if eq .Action "deploy"}}
+                            <span style="color: var(--accent-cyan); font-weight: 600;">Deploy</span>
+                        {{else}}
+                            <span>Ausführung</span>
+                        {{end}}
+                    </td>
+                    <td><span class="badge badge-neutral" style="font-family: var(--mono);">{{.Version}}</span></td>
+                    <td style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
+                        {{if .DurationMS}}
+                            {{.DurationMS}} ms
+                        {{else}}
+                            -
+                        {{end}}
+                    </td>
+                    <td style="font-size: 12px; color: var(--text-muted);">
+                        {{.StartedAt.Format "02.01.2006 15:04:05"}}
+                    </td>
+                    <td style="font-size: 12px; color: #e4e4e7;">{{.TriggeredBy}}</td>
+                    <td style="text-align: right;">
+                        <a href="/executions/{{.ID}}" class="btn btn-secondary btn-sm">
+                            <svg class="icon icon-sm"><use href="#icon-terminal"></use></svg>
+                            Konsole &amp; Log
+                        </a>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
     {{else}}
         <div style="text-align: center; padding: 48px; color: var(--text-muted);">
             Keine Ausführungen gefunden.

@@ -20,8 +20,10 @@ type Client struct {
 }
 
 func NewClient(baseURL, username, password string) *Client {
+	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = strings.TrimSuffix(baseURL, "/repository")
 	return &Client{
-		BaseURL:  strings.TrimRight(baseURL, "/"),
+		BaseURL:  baseURL,
 		Username: username,
 		Password: password,
 		HTTPClient: &http.Client{

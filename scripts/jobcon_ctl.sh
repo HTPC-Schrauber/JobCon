@@ -7,6 +7,7 @@
 set -euo pipefail
 
 BASE_DIR="/opt/talend"
+JOBS_DIR=""
 COMMAND=""
 JOB_NAME=""
 JOB_VERSION=""
@@ -22,7 +23,7 @@ usage() {
 Usage: $(basename "$0") <deploy|run> [options]
 
 Commands:
-  deploy    Download and unpack Talend job version, update current symlink
+  deploy    Download and unpack Talend job version, rotate generation symlinks (current, current-1, ...), purge unlinked releases
   run       Execute Talend job (deploys first if version specified & missing)
 
 Options:
@@ -33,7 +34,8 @@ Options:
   --nexus-pass <pass>      Nexus password (optional)
   --context <context>      Talend context to run (default: Default)
   --base-dir <dir>         Talend base directory (default: /opt/talend)
-  --keep <num>             Number of release versions to retain (default: 3)
+  --jobs-dir <dir>         Talend jobs directory (default: <base-dir>/jobs)
+  --keep <num>             Number of release versions to retain via symlinks (default: 3)
   --params <args...>       Parameters forwarded to Talend job (e.g. --context_param key=val)
   -h, --help               Show this help message
 EOF
@@ -79,6 +81,10 @@ while [[ $# -gt 0 ]]; do
             BASE_DIR="$2"
             shift 2
             ;;
+        --jobs-dir)
+            JOBS_DIR="$2"
+            shift 2
+            ;;
         --keep)
             KEEP_RELEASES="$2"
             shift 2
@@ -105,7 +111,11 @@ if [[ -z "$JOB_NAME" ]]; then
     exit 1
 fi
 
-JOB_ROOT="${BASE_DIR}/jobs/${JOB_NAME}"
+if [[ -n "$JOBS_DIR" ]]; then
+    JOB_ROOT="${JOBS_DIR}/${JOB_NAME}"
+else
+    JOB_ROOT="${BASE_DIR}/jobs/${JOB_NAME}"
+fi
 RELEASES_DIR="${JOB_ROOT}/releases"
 CURRENT_LINK="${JOB_ROOT}/current"
 
@@ -196,29 +206,96 @@ do_deploy() {
         echo "[JobCon] Version ${JOB_VERSION} successfully installed."
     fi
 
-    # Update current symlink atomically
-    echo "[JobCon] Updating symlink: current -> releases/${JOB_VERSION}"
-    ln -sfn "releases/${JOB_VERSION}" "${CURRENT_LINK}"
+    # Gather previously linked releases (excluding the version being deployed now)
+    local active_targets=("releases/${JOB_VERSION}")
 
-    # Clean up older releases if KEEP_RELEASES > 0
-    if [[ "$KEEP_RELEASES" -gt 0 ]]; then
-        local installed_count
-        installed_count=$(find "${RELEASES_DIR}" -mindepth 1 -maxdepth 1 -type d ! -name ".*" | wc -l)
-        if [[ "$installed_count" -gt "$KEEP_RELEASES" ]]; then
-            echo "[JobCon] Retaining latest ${KEEP_RELEASES} releases (found ${installed_count})..."
-            # Sort directories by modification time (oldest first)
-            find "${RELEASES_DIR}" -mindepth 1 -maxdepth 1 -type d ! -name ".*" -printf '%T+ %p\n' \
-                | sort \
-                | head -n -"${KEEP_RELEASES}" \
-                | cut -d' ' -f2- \
-                | while read -r old_release; do
-                    if [[ "$old_release" != "${target_version_dir}" ]]; then
-                        echo "[JobCon] Purging old release: $(basename "$old_release")"
-                        rm -rf "$old_release"
+    for ((i=0; i<KEEP_RELEASES + 5; i++)); do
+        local check_link
+        if [[ $i -eq 0 ]]; then
+            check_link="${CURRENT_LINK}"
+        else
+            check_link="${JOB_ROOT}/current-${i}"
+        fi
+
+        if [[ -L "$check_link" ]]; then
+            local raw_target
+            raw_target=$(readlink "$check_link" || true)
+            local target_basename
+            target_basename=$(basename "$raw_target")
+            if [[ -n "$target_basename" && -d "${RELEASES_DIR}/${target_basename}" ]]; then
+                local rel_target="releases/${target_basename}"
+                local duplicate=0
+                for t in "${active_targets[@]}"; do
+                    if [[ "$t" == "$rel_target" ]]; then
+                        duplicate=1
+                        break
                     fi
                 done
+                if [[ $duplicate -eq 0 ]]; then
+                    active_targets+=("$rel_target")
+                fi
+            fi
         fi
+    done
+
+    # 1. Update primary 'current' symlink
+    echo "[JobCon] Updating symlink: current -> ${active_targets[0]}"
+    ln -sfn "${active_targets[0]}" "${CURRENT_LINK}"
+
+    # 2. Update secondary symlinks (current-1, current-2, ...) up to KEEP_RELEASES - 1
+    if [[ "$KEEP_RELEASES" -gt 1 ]]; then
+        for ((idx=1; idx<KEEP_RELEASES; idx++)); do
+            local sec_link="${JOB_ROOT}/current-${idx}"
+            if [[ $idx -lt ${#active_targets[@]} ]]; then
+                echo "[JobCon] Updating symlink: current-${idx} -> ${active_targets[idx]}"
+                ln -sfn "${active_targets[idx]}" "$sec_link"
+            else
+                rm -f "$sec_link"
+            fi
+        done
     fi
+
+    # 3. Clean up any stale current-* symlinks beyond KEEP_RELEASES - 1
+    for extra_link in "${JOB_ROOT}"/current-*; do
+        if [[ -L "$extra_link" || -e "$extra_link" ]]; then
+            local suffix="${extra_link##*-}"
+            if [[ "$suffix" =~ ^[0-9]+$ ]] && [[ "$suffix" -ge "$KEEP_RELEASES" ]]; then
+                echo "[JobCon] Removing stale symlink: $(basename "$extra_link")"
+                rm -f "$extra_link"
+            elif [[ "$KEEP_RELEASES" -le 1 ]]; then
+                echo "[JobCon] Removing stale symlink: $(basename "$extra_link")"
+                rm -f "$extra_link"
+            fi
+        fi
+    done
+
+    # 4. Clean up unlinked releases in releases/
+    local retained_versions=()
+    local max_retained=$(( KEEP_RELEASES < ${#active_targets[@]} ? KEEP_RELEASES : ${#active_targets[@]} ))
+    for ((idx=0; idx<max_retained; idx++)); do
+        retained_versions+=("$(basename "${active_targets[idx]}")")
+    done
+
+    for dir in "${RELEASES_DIR}"/*; do
+        if [[ -d "$dir" && ! -L "$dir" ]]; then
+            local ver_name
+            ver_name=$(basename "$dir")
+            if [[ "$ver_name" == .* ]]; then
+                continue
+            fi
+            local keep=0
+            for rv in "${retained_versions[@]}"; do
+                if [[ "$ver_name" == "$rv" ]]; then
+                    keep=1
+                    break
+                fi
+            done
+            if [[ $keep -eq 0 ]]; then
+                echo "[JobCon] Purging unlinked release: ${ver_name}"
+                rm -rf "$dir"
+            fi
+        fi
+    done
 
     echo "[JobCon] Deployment of ${JOB_NAME} (${JOB_VERSION}) completed successfully."
 }

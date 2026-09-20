@@ -121,8 +121,97 @@ func TestAPIHealthAndJobs(t *testing.T) {
 	}
 	var artifactRes map[string]string
 	_ = json.Unmarshal(rec.Body.Bytes(), &artifactRes)
-	expectedURL := "https://nexus.test/releases/de/firma/talend/sync_sap/1.0.0/sync_sap-1.0.0.zip"
+	expectedURL := "https://nexus.test/repository/releases/de/firma/talend/sync_sap/1.0.0/sync_sap-1.0.0.zip"
 	if artifactRes["download_url"] != expectedURL {
 		t.Errorf("expected download_url %q, got %q", expectedURL, artifactRes["download_url"])
+	}
+}
+
+func TestAPIServerUsageAndDelete(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	// 1. Create two servers
+	s1 := &db.Server{
+		ID:         "srv-api-1",
+		Name:       "Node 1",
+		Host:       "192.168.1.10",
+		Port:       22,
+		User:       "talend",
+		SSHKeyPath: "/tmp/key1",
+		JobsDir:    "/opt/talend/jobs",
+		ScriptsDir: "/opt/talend/scripts",
+	}
+	s2 := &db.Server{
+		ID:         "srv-api-2",
+		Name:       "Node 2",
+		Host:       "192.168.1.20",
+		Port:       22,
+		User:       "talend",
+		SSHKeyPath: "/tmp/key2",
+	}
+	_ = database.CreateServer(s1)
+	_ = database.CreateServer(s2)
+
+	// Create job on s1
+	j := &db.Job{
+		ID:            "job-api-1",
+		Name:          "Job API 1",
+		ServerID:      "srv-api-1",
+		GroupID:       "com.example",
+		ArtifactID:    "job_api",
+		ActiveVersion: "1.0.0",
+		NexusRepo:     "releases",
+	}
+	_ = database.CreateJob(j)
+
+	// 2. GET /api/v1/servers/srv-api-1/usage
+	req := httptest.NewRequest("GET", "/api/v1/servers/srv-api-1/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for server usage, got %d", rec.Code)
+	}
+	var usageRes struct {
+		JobCount     int         `json:"job_count"`
+		Jobs         []db.Job    `json:"jobs"`
+		OtherServers []db.Server `json:"other_servers"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &usageRes); err != nil {
+		t.Fatalf("failed to decode usage response: %v", err)
+	}
+	if usageRes.JobCount != 1 || len(usageRes.Jobs) != 1 || usageRes.Jobs[0].ID != "job-api-1" {
+		t.Errorf("unexpected usage jobs: %+v", usageRes)
+	}
+	if len(usageRes.OtherServers) != 1 || usageRes.OtherServers[0].ID != "srv-api-2" {
+		t.Errorf("unexpected other servers: %+v", usageRes.OtherServers)
+	}
+
+	// 3. DELETE /api/v1/servers/srv-api-1 without target_server_id -> 409 Conflict
+	req = httptest.NewRequest("DELETE", "/api/v1/servers/srv-api-1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. DELETE /api/v1/servers/srv-api-1 with target_server_id=srv-api-2 -> 200 OK
+	req = httptest.NewRequest("DELETE", "/api/v1/servers/srv-api-1?target_server_id=srv-api-2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for delete with reassignment, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify job is now on srv-api-2
+	updatedJob, _ := database.GetJob("job-api-1")
+	if updatedJob.ServerID != "srv-api-2" {
+		t.Errorf("expected job on srv-api-2, got %s", updatedJob.ServerID)
 	}
 }

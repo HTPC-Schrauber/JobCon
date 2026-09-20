@@ -51,9 +51,17 @@ func (m *ExecutionManager) BuildNexusURL(job *db.Job, version string) string {
 	groupPath := strings.ReplaceAll(job.GroupID, ".", "/")
 	baseURL, _ := m.db.GetSetting("nexus_base_url", m.nexusCfg.BaseURL)
 	baseURL = strings.TrimRight(baseURL, "/")
-	// Format: {base_url}/{repo}/{group_path}/{artifact_id}/{version}/{artifact_id}-{version}.zip
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s-%s.zip",
-		baseURL, job.NexusRepo, groupPath, job.ArtifactID, version, job.ArtifactID, version)
+	baseURL = strings.TrimSuffix(baseURL, "/repository")
+
+	repo := job.NexusRepo
+	if repo == "" {
+		repo = "releases"
+	}
+
+	// Nexus 3 Maven repository artifacts are hosted at:
+	// Format: {base_url}/repository/{repo}/{group_path}/{artifact_id}/{version}/{artifact_id}-{version}.zip
+	return fmt.Sprintf("%s/repository/%s/%s/%s/%s/%s-%s.zip",
+		baseURL, repo, groupPath, job.ArtifactID, version, job.ArtifactID, version)
 }
 
 // GetNexusCredentials returns username and password from DB settings or config fallback
@@ -134,21 +142,37 @@ func (m *ExecutionManager) StartExecution(
 		return nil, fmt.Errorf("failed to save execution: %w", err)
 	}
 
+	scriptsDir := server.ScriptsDir
+	if scriptsDir == "" {
+		scriptsDir = "/opt/talend/scripts"
+	}
+	jobsDir := server.JobsDir
+	if jobsDir == "" {
+		jobsDir = "/opt/talend/jobs"
+	}
+	ctlScript := fmt.Sprintf("%s/jobcon_ctl.sh", strings.TrimRight(scriptsDir, "/"))
+	keepReleases := server.KeepReleases
+	if keepReleases <= 0 {
+		keepReleases = 3
+	}
+
 	// Build CLI command
 	var cmdParts []string
 	if action == "deploy" {
-		cmdParts = append(cmdParts, "/opt/talend/scripts/jobcon_ctl.sh", "deploy",
+		cmdParts = append(cmdParts, ctlScript, "deploy",
 			"--job", fmt.Sprintf("%q", job.ArtifactID),
 			"--version", fmt.Sprintf("%q", targetVersion),
 			"--nexus-url", fmt.Sprintf("%q", nexusURL),
-			"--keep", fmt.Sprintf("%d", job.RetentionRuns),
+			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
+			"--keep", fmt.Sprintf("%d", keepReleases),
 		)
 	} else {
 		// Run action
-		cmdParts = append(cmdParts, "/opt/talend/scripts/jobcon_ctl.sh", "run",
+		cmdParts = append(cmdParts, ctlScript, "run",
 			"--job", fmt.Sprintf("%q", job.ArtifactID),
 			"--version", fmt.Sprintf("%q", targetVersion),
 			"--nexus-url", fmt.Sprintf("%q", nexusURL),
+			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
 			"--context", fmt.Sprintf("%q", targetContext),
 		)
 

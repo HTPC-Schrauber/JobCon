@@ -1,32 +1,37 @@
 {{define "content"}}
 <div style="margin-bottom: 16px;">
-    <a href="/" style="color: var(--text-muted); font-size: 13px;">← Zurück zum Dashboard</a>
+    <a href="/" style="color: var(--text-muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+        <svg class="icon icon-sm"><use href="#icon-arrow-left"></use></svg>
+        Zurück zum Dashboard
+    </a>
 </div>
 
 <div class="card" style="margin-bottom: 16px;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
         <div>
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                <h1 style="font-size: 20px; font-weight: 700; color: #fff;">{{.Exec.JobName}}</h1>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+                <h1 style="font-size: 19px; font-weight: 700; color: #fff;">{{.Exec.JobName}}</h1>
                 <span id="statusBadge" class="badge {{if eq .Exec.Status "running"}}badge-running{{else if eq .Exec.Status "success"}}badge-success{{else if eq .Exec.Status "failed"}}badge-danger{{else}}badge-neutral{{end}}">
                     {{.Exec.Status}}
                 </span>
                 <span class="badge badge-neutral">{{.Exec.Action}}</span>
-                <span class="badge badge-neutral">v{{.Exec.Version}}</span>
+                <span class="badge badge-neutral" style="font-family: var(--mono);">v{{.Exec.Version}}</span>
             </div>
             <div style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
-                Execution-ID: {{.Exec.ID}} | Gestartet: {{.Exec.StartedAt.Format "02.01.2006 15:04:05"}} | Durch: {{.Exec.TriggeredBy}}
+                Execution-ID: {{.Exec.ID}} &bull; Gestartet: {{.Exec.StartedAt.Format "02.01.2006 15:04:05"}} &bull; Auslöser: {{.Exec.TriggeredBy}}
             </div>
         </div>
 
         <div style="display: flex; gap: 10px; align-items: center;">
             {{if eq .Exec.Status "running"}}
                 <button id="abortBtn" class="btn btn-danger" onclick="abortExecution('{{.Exec.ID}}')">
-                    🛑 Ausführung Abbrechen
+                    <svg class="icon icon-sm"><use href="#icon-stop"></use></svg>
+                    Ausführung abbrechen
                 </button>
             {{end}}
             <a href="/api/v1/executions/{{.Exec.ID}}/logs?format=raw" download="{{.Exec.ID}}.log" class="btn btn-secondary">
-                💾 Log Herunterladen
+                <svg class="icon icon-sm"><use href="#icon-download"></use></svg>
+                Log herunterladen
             </a>
         </div>
     </div>
@@ -34,19 +39,16 @@
 
 <div class="terminal-window">
     <div class="terminal-bar">
-        <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
-            <span style="width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span>
-            <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
-            <span style="font-family: var(--mono); font-size: 12px; color: var(--text-muted); margin-left: 8px;">
-                Console: {{.Exec.ID}}
-            </span>
+        <div class="terminal-status-indicator">
+            <span class="terminal-status-dot"></span>
+            <span>Console Stream: {{.Exec.ID}}</span>
         </div>
         <div style="display: flex; align-items: center; gap: 16px;">
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-muted); margin: 0;">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-muted); margin: 0; text-transform: none; font-weight: normal;">
                 <input type="checkbox" id="autoScroll" checked> Auto-Scroll
             </label>
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('consoleOutput').innerText=''">
+                <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
                 Leeren
             </button>
         </div>

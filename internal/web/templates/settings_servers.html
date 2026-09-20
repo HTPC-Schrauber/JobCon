@@ -1,67 +1,114 @@
 {{define "content"}}
 <div class="tabs">
-    <a href="/settings/servers" class="tab active">Execution Server</a>
-    <a href="/settings/users" class="tab">Benutzerverwaltung</a>
-    <a href="/settings/system" class="tab">System & Tokens</a>
+    <a href="/settings/servers" class="tab active">
+        <svg class="icon icon-sm"><use href="#icon-server"></use></svg>
+        Execution Server
+    </a>
+    <a href="/settings/users" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-users"></use></svg>
+        Benutzerverwaltung
+    </a>
+    <a href="/settings/system" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-settings"></use></svg>
+        System &amp; Tokens
+    </a>
 </div>
+
+{{if .SuccessMsg}}
+<div class="card" style="border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.1); margin-bottom: 16px; padding: 12px 16px;">
+    <div style="color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <svg class="icon icon-md" style="color: #34d399;"><use href="#icon-check"></use></svg>
+        {{.SuccessMsg}}
+    </div>
+</div>
+{{end}}
+
+{{if .ErrorMsg}}
+<div class="card" style="border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.1); margin-bottom: 16px; padding: 12px 16px;">
+    <div style="color: #f87171; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <svg class="icon icon-md" style="color: #f87171;"><use href="#icon-alert-triangle"></use></svg>
+        {{.ErrorMsg}}
+    </div>
+</div>
+{{end}}
 
 <div class="card">
     <div class="card-header">
         <div>
             <h2 class="card-title">Talend Execution Server</h2>
             <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
-                Linux-Zielserver, auf denen Jobs deployed und ausgeführt werden (Verbindung via SSH Key-Auth).
+                Linux-Zielserver, auf denen Jobs deployed und ausgeführt werden (SSH Key-Auth). Klick auf eine Zeile öffnet die Server-Details und Aktionen.
             </p>
         </div>
+        {{if eq .User.Role "admin"}}
         <button class="btn btn-primary btn-sm" onclick="document.getElementById('addServerModal').style.display='flex'">
-            + Server Hinzufügen
+            <svg class="icon icon-sm"><use href="#icon-plus"></use></svg>
+            Server hinzufügen
         </button>
+        {{end}}
     </div>
 
     {{if .Servers}}
-    <table>
-        <thead>
-            <tr>
-                <th>Server-ID</th>
-                <th>Anzeigename</th>
-                <th>Host & Port</th>
-                <th>SSH-User</th>
-                <th>SSH-Key</th>
-                <th>Status</th>
-                <th>Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .Servers}}
-            <tr>
-                <td style="font-family: var(--mono); font-weight: 600;">{{.ID}}</td>
-                <td>{{.Name}}</td>
-                <td style="font-family: var(--mono);">{{.Host}}:{{.Port}}</td>
-                <td>{{.User}}</td>
-                <td style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">{{.SSHKeyPath}}</td>
-                <td id="status-{{.ID}}">
-                    {{if eq .Status "online"}}
-                        <span class="badge badge-success">Online</span>
-                    {{else if eq .Status "offline"}}
-                        <span class="badge badge-danger">Offline</span>
-                    {{else}}
-                        <span class="badge badge-neutral">Ungeprüft</span>
-                    {{end}}
-                </td>
-                <td>
-                    <button class="btn btn-secondary btn-sm"
-                            hx-post="/api/v1/servers/{{.ID}}/test"
-                            hx-target="#status-{{.ID}}"
-                            hx-swap="innerHTML"
-                            hx-indicator="#loading-{{.ID}}">
-                        🔍 Verbindung Testen
-                    </button>
-                    <span id="loading-{{.ID}}" class="htmx-indicator" style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">Prüfe...</span>
-                </td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Server-ID</th>
+                    <th>Anzeigename</th>
+                    <th>Host &amp; Port</th>
+                    <th>SSH-User</th>
+                    <th>Verzeichnisse</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Servers}}
+                <tr class="clickable-row" onclick="openServerSidepanel('{{.ID}}')" style="cursor: pointer;">
+                    <td style="font-family: var(--mono); font-weight: 600; color: #fff;">
+                        <span style="display: inline-flex; align-items: center; gap: 6px;">
+                            <svg class="icon icon-sm" style="color: var(--accent-cyan);"><use href="#icon-server"></use></svg>
+                            {{.ID}}
+                        </span>
+                    </td>
+                    <td style="font-weight: 500;">{{.Name}}</td>
+                    <td style="font-family: var(--mono); color: #a1a1aa;">{{.Host}}:{{.Port}}</td>
+                    <td>{{.User}}</td>
+                    <td style="font-size: 11.5px; color: var(--text-muted); font-family: var(--mono);">
+                        <div><span style="color: #71717a;">Jobs:</span> {{.JobsDir}}</div>
+                        <div><span style="color: #71717a;">Scripts:</span> {{.ScriptsDir}}</div>
+                        <div><span style="color: #71717a;">Releases:</span> {{.KeepReleases}}</div>
+                    </td>
+                    <td id="status-{{.ID}}">
+                        {{if eq .Status "online"}}
+                            <span class="badge badge-success">Online</span>
+                        {{else if eq .Status "offline"}}
+                            <span class="badge badge-danger">Offline</span>
+                        {{else}}
+                            <span class="badge badge-neutral">Ungeprüft</span>
+                        {{end}}
+                    </td>
+                    <td style="text-align: right;" onclick="event.stopPropagation()">
+                        <div style="display: flex; gap: 6px; justify-content: flex-end; align-items: center;">
+                            <button class="btn btn-secondary btn-sm"
+                                    hx-post="/api/v1/servers/{{.ID}}/test"
+                                    hx-target="#status-{{.ID}}"
+                                    hx-swap="innerHTML"
+                                    hx-indicator="#loading-{{.ID}}">
+                                <svg class="icon icon-sm"><use href="#icon-activity"></use></svg>
+                                Verbindung testen
+                            </button>
+                            <button class="btn btn-secondary btn-sm" onclick="openServerSidepanel('{{.ID}}')">
+                                Details
+                            </button>
+                            <span id="loading-{{.ID}}" class="htmx-indicator" style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">Prüfe...</span>
+                        </div>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
     {{else}}
         <div style="text-align: center; padding: 32px; color: var(--text-muted);">
             Noch keine Execution Server hinterlegt.
@@ -69,42 +116,576 @@
     {{end}}
 </div>
 
-<!-- Modal: Server Hinzufügen -->
+<!-- ========================================================================= -->
+<!-- SIDEPANEL: SERVER DETAILS & AKTIONEN                                      -->
+<!-- ========================================================================= -->
+<div id="sidepanelBackdrop" class="sidepanel-backdrop" onclick="closeServerSidepanel()"></div>
+<div id="serverSidepanel" class="sidepanel">
+    <div class="sidepanel-header">
+        <div>
+            <h3 id="spServerName" style="font-size: 17px; color: #fff; margin-bottom: 2px;">Execution Server</h3>
+            <div id="spServerID" style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);"></div>
+        </div>
+        <button class="sidepanel-close" onclick="closeServerSidepanel()">
+            <svg class="icon icon-md"><use href="#icon-x"></use></svg>
+        </button>
+    </div>
+
+    <div class="sidepanel-body">
+        <!-- Quick Action Buttons -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--surface-border-subtle);">
+            <button id="spTestBtn" class="btn btn-secondary btn-sm">
+                <svg class="icon icon-sm"><use href="#icon-activity"></use></svg>
+                Verbindung testen
+            </button>
+            <button id="spSetupBtn" class="btn btn-secondary btn-sm">
+                <svg class="icon icon-sm"><use href="#icon-download"></use></svg>
+                Scripte bereitstellen
+            </button>
+            {{if eq .User.Role "admin"}}
+                <button id="spEditBtn" class="btn btn-secondary btn-sm">
+                    <svg class="icon icon-sm"><use href="#icon-edit"></use></svg>
+                    Bearbeiten
+                </button>
+                <button id="spDeleteBtn" class="btn btn-danger btn-sm">
+                    <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                    Löschen
+                </button>
+            {{end}}
+        </div>
+
+        <!-- Live Diagnostics / Action Feedback -->
+        <div id="spActionAlert" style="display: none; margin-bottom: 16px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 12px;"></div>
+
+        <!-- Server Details Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px;">
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Host &amp; Port</div>
+                <div id="spHostPort" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">SSH Benutzer</div>
+                <div id="spUser" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Status</div>
+                <div id="spStatusBadge" style="margin-top: 2px;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Zuletzt geprüft</div>
+                <div id="spLastChecked" style="font-size: 12px; margin-top: 2px; color: #a1a1aa;">-</div>
+            </div>
+            <div style="grid-column: span 2;">
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">SSH Key Pfad</div>
+                <div id="spKeyPath" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #e4e4e7; word-break: break-all;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Jobs-Verzeichnis</div>
+                <div id="spJobsDir" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #fff; word-break: break-all;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Scripte-Verzeichnis</div>
+                <div id="spScriptsDir" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #fff; word-break: break-all;"></div>
+            </div>
+            <div style="grid-column: span 2;">
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Aufbewahrte Releases</div>
+                <div id="spKeepReleases" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #fff;"></div>
+            </div>
+        </div>
+
+        <!-- Initialisierung / Deployment Status Card -->
+        <div class="card" style="background: rgba(255,255,255,0.02); border-color: var(--surface-border-subtle); padding: 14px; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="font-size: 12px; margin: 0; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px;">
+                    <svg class="icon icon-sm"><use href="#icon-download"></use></svg>
+                    Server-Initialisierung &amp; Scripte
+                </h4>
+                <button type="button" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;" onclick="triggerSetupFromSidepanel()">
+                    Jetzt bereitstellen
+                </button>
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.4;">
+                Legt die konfigurierten Verzeichnisse via SSH an und installiert die JobCon-Controller-Scripte (<code>jobcon_ctl.sh</code>, <code>run_job.sh</code>) mit Rechten 0755.
+            </p>
+            <div id="spSetupStatus" style="font-size: 12px; color: #a1a1aa; font-family: var(--mono);">
+                Klicken Sie auf &bdquo;Verbindung testen&ldquo; oder &bdquo;Jetzt bereitstellen&ldquo;, um den Zielserver zu prüfen.
+            </div>
+        </div>
+
+        <!-- Assigned Jobs List -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="font-size: 13px; margin: 0; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">
+                Zugeordnete Talend Jobs (<span id="spJobsCount">0</span>)
+            </h4>
+        </div>
+        <div id="spJobsList" style="margin-bottom: 20px;">
+            Lade zugeordnete Jobs...
+        </div>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: SERVER HINZUFÜGEN                                                  -->
+<!-- ========================================================================= -->
 <div id="addServerModal" class="modal-overlay" style="display: none;">
-    <div class="modal">
-        <h3 style="margin-bottom: 16px; font-size: 18px;">Execution Server anlegen</h3>
+    <div class="modal" style="max-width: 580px;">
+        <h3 style="margin-bottom: 16px; font-size: 17px; color: #fff;">Execution Server anlegen</h3>
         <form action="/web/servers/create" method="POST">
             <div class="form-group">
-                <label for="serverId">Server ID (eindeutiger Schlüssel)</label>
-                <input type="text" id="serverId" name="id" placeholder="srv-talend-prod-01" required>
+                <label for="addServerId">Server ID (eindeutiger Schlüssel)</label>
+                <input type="text" id="addServerId" name="id" placeholder="srv-talend-prod-01" required>
             </div>
             <div class="form-group">
-                <label for="serverName">Anzeigename</label>
-                <input type="text" id="serverName" name="name" placeholder="Produktion Node 1" required>
+                <label for="addServerName">Anzeigename</label>
+                <input type="text" id="addServerName" name="name" placeholder="Produktion Node 1" required>
             </div>
             <div style="display: grid; grid-template-columns: 3fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="serverHost">Hostname oder IP-Adresse</label>
-                    <input type="text" id="serverHost" name="host" placeholder="192.168.1.100" required>
+                    <label for="addServerHost">Hostname oder IP-Adresse</label>
+                    <input type="text" id="addServerHost" name="host" placeholder="192.168.1.100" required>
                 </div>
                 <div class="form-group">
-                    <label for="serverPort">SSH Port</label>
-                    <input type="text" id="serverPort" name="port" value="22" required>
+                    <label for="addServerPort">SSH Port</label>
+                    <input type="text" id="addServerPort" name="port" value="22" required>
                 </div>
             </div>
             <div class="form-group">
-                <label for="serverUser">SSH Benutzer</label>
-                <input type="text" id="serverUser" name="user" value="talend" required>
+                <label for="addServerUser">SSH Benutzer</label>
+                <input type="text" id="addServerUser" name="user" value="talend" required>
             </div>
             <div class="form-group">
-                <label for="serverKey">Pfad zum SSH Private Key (auf JobCon-Host)</label>
-                <input type="text" id="serverKey" name="ssh_key_path" placeholder="/home/jobcon/.ssh/id_ed25519" required>
+                <label for="addServerKey">Pfad zum SSH Private Key (auf JobCon-Host)</label>
+                <input type="text" id="addServerKey" name="ssh_key_path" placeholder="/home/jobcon/.ssh/id_ed25519" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="addJobsDir">Jobs-Verzeichnis</label>
+                    <input type="text" id="addJobsDir" name="jobs_dir" value="/opt/talend/jobs" required>
+                </div>
+                <div class="form-group">
+                    <label for="addScriptsDir">Scripte-Verzeichnis</label>
+                    <input type="text" id="addScriptsDir" name="scripts_dir" value="/opt/talend/scripts" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="addKeepReleases">Aufbewahrte Releases (Retention)</label>
+                <input type="number" id="addKeepReleases" name="keep_releases" value="3" min="1" max="20" required>
+                <small style="color: var(--text-muted); font-size: 11px;">Anzahl der aktiven bzw. letzten Versionen (current, current-1, ...), die auf dem Server vorgehalten werden.</small>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('addServerModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Server Speichern</button>
+                <button type="submit" class="btn btn-primary">Server speichern</button>
             </div>
         </form>
     </div>
 </div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: SERVER BEARBEITEN                                                  -->
+<!-- ========================================================================= -->
+<div id="editServerModal" class="modal-overlay" style="display: none;">
+    <div class="modal" style="max-width: 580px;">
+        <h3 style="margin-bottom: 16px; font-size: 17px; color: #fff;">Execution Server bearbeiten</h3>
+        <form id="editServerForm" method="POST">
+            <div class="form-group">
+                <label>Server ID</label>
+                <input type="text" id="editServerId" disabled style="background: rgba(255,255,255,0.05); color: #888; font-family: var(--mono);">
+            </div>
+            <div class="form-group">
+                <label for="editServerName">Anzeigename</label>
+                <input type="text" id="editServerName" name="name" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 3fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="editServerHost">Hostname oder IP-Adresse</label>
+                    <input type="text" id="editServerHost" name="host" required>
+                </div>
+                <div class="form-group">
+                    <label for="editServerPort">SSH Port</label>
+                    <input type="text" id="editServerPort" name="port" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="editServerUser">SSH Benutzer</label>
+                <input type="text" id="editServerUser" name="user" required>
+            </div>
+            <div class="form-group">
+                <label for="editServerKey">Pfad zum SSH Private Key</label>
+                <input type="text" id="editServerKey" name="ssh_key_path" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label for="editJobsDir">Jobs-Verzeichnis</label>
+                    <input type="text" id="editJobsDir" name="jobs_dir" required>
+                </div>
+                <div class="form-group">
+                    <label for="editScriptsDir">Scripte-Verzeichnis</label>
+                    <input type="text" id="editScriptsDir" name="scripts_dir" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="editKeepReleases">Aufbewahrte Releases (Retention)</label>
+                <input type="number" id="editKeepReleases" name="keep_releases" min="1" max="20" required>
+                <small style="color: var(--text-muted); font-size: 11px;">Anzahl der aktiven bzw. letzten Versionen (current, current-1, ...), die auf dem Server vorgehalten werden.</small>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('editServerModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Änderungen speichern</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: SERVER LÖSCHEN (MIT JOB-CHECK & REASSIGNMENT)                     -->
+<!-- ========================================================================= -->
+<div id="deleteServerModal" class="modal-overlay" style="display: none;">
+    <div class="modal" style="max-width: 580px;">
+        <h3 id="deleteModalTitle" style="margin-bottom: 16px; font-size: 17px; color: #fff; display: flex; align-items: center; gap: 8px;">
+            <svg class="icon icon-md" style="color: var(--danger);"><use href="#icon-trash"></use></svg>
+            Execution Server löschen
+        </h3>
+
+        <div id="deleteModalBody">
+            <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+                <svg class="icon icon-spin icon-md" style="margin-bottom: 8px;"><use href="#icon-loader"></use></svg>
+                <div>Prüfe Server-Abhängigkeiten...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentServerData = null;
+
+function openServerSidepanel(serverId) {
+    // Reset view
+    document.getElementById('spServerName').innerText = 'Lade Details...';
+    document.getElementById('spServerID').innerText = serverId;
+    document.getElementById('spHostPort').innerText = '...';
+    document.getElementById('spUser').innerText = '...';
+    document.getElementById('spKeyPath').innerText = '...';
+    document.getElementById('spJobsDir').innerText = '...';
+    document.getElementById('spScriptsDir').innerText = '...';
+    document.getElementById('spJobsCount').innerText = '0';
+    document.getElementById('spJobsList').innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">Lade zugeordnete Jobs...</div>';
+    document.getElementById('spActionAlert').style.display = 'none';
+
+    document.getElementById('sidepanelBackdrop').classList.add('open');
+    document.getElementById('serverSidepanel').classList.add('open');
+
+    fetch('/api/v1/servers/' + serverId + '/usage')
+        .then(res => {
+            if (!res.ok) throw new Error('Status ' + res.status);
+            return res.json();
+        })
+        .then(data => {
+            currentServerData = data.server;
+            const s = data.server;
+            document.getElementById('spServerName').innerText = s.name;
+            document.getElementById('spServerID').innerText = s.id;
+            document.getElementById('spHostPort').innerText = s.host + ':' + s.port;
+            document.getElementById('spUser').innerText = s.user;
+            document.getElementById('spKeyPath').innerText = s.ssh_key_path;
+            document.getElementById('spJobsDir').innerText = s.jobs_dir || '/opt/talend/jobs';
+            document.getElementById('spScriptsDir').innerText = s.scripts_dir || '/opt/talend/scripts';
+            document.getElementById('spKeepReleases').innerText = s.keep_releases || 3;
+            document.getElementById('spLastChecked').innerText = s.last_checked_at ? new Date(s.last_checked_at).toLocaleString('de-DE') : 'Noch nicht geprüft';
+
+            // Status Badge
+            const statusEl = document.getElementById('spStatusBadge');
+            if (s.status === 'online') {
+                statusEl.innerHTML = '<span class="badge badge-success">Online</span>';
+            } else if (s.status === 'offline') {
+                statusEl.innerHTML = '<span class="badge badge-danger">Offline</span>';
+            } else {
+                statusEl.innerHTML = '<span class="badge badge-neutral">Ungeprüft</span>';
+            }
+
+            // Quick Actions Buttons
+            document.getElementById('spTestBtn').onclick = () => testServerFromSidepanel(s.id);
+            document.getElementById('spSetupBtn').onclick = () => triggerSetupFromSidepanel();
+            const editBtn = document.getElementById('spEditBtn');
+            if (editBtn) editBtn.onclick = () => openEditServerModal(s);
+            const deleteBtn = document.getElementById('spDeleteBtn');
+            if (deleteBtn) deleteBtn.onclick = () => openDeleteServerModal(s.id, s.name);
+
+            // Render Jobs List
+            document.getElementById('spJobsCount').innerText = data.job_count;
+            const jobsListEl = document.getElementById('spJobsList');
+            if (!data.jobs || data.jobs.length === 0) {
+                jobsListEl.innerHTML = '<div style="color: var(--text-muted); font-size: 12px; background: rgba(255,255,255,0.02); padding: 12px; border-radius: var(--radius-xs); border: 1px dashed var(--surface-border-subtle);">Keine konfigurierten Jobs auf diesem Server.</div>';
+            } else {
+                let html = '<div style="display: flex; flex-direction: column; gap: 6px;">';
+                data.jobs.forEach(j => {
+                    html += '<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--surface-border-subtle); padding: 8px 12px; border-radius: var(--radius-xs);">';
+                    html += '<div>';
+                    html += '<div style="font-weight: 600; font-size: 13px; color: #fff;">' + escapeHtml(j.name) + '</div>';
+                    html += '<div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">' + escapeHtml(j.group_id) + ' &bull; v' + escapeHtml(j.active_version) + '</div>';
+                    html += '</div>';
+                    html += '<a href="/?search=' + encodeURIComponent(j.name) + '" class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 2px 8px;">Im Dashboard anzeigen</a>';
+                    html += '</div>';
+                });
+                html += '</div>';
+                jobsListEl.innerHTML = html;
+            }
+        })
+        .catch(err => {
+            document.getElementById('spServerName').innerText = 'Fehler beim Laden';
+            showAlert('spActionAlert', 'danger', 'Server-Details konnten nicht geladen werden: ' + err.message);
+        });
+}
+
+function closeServerSidepanel() {
+    document.getElementById('sidepanelBackdrop').classList.remove('open');
+    document.getElementById('serverSidepanel').classList.remove('open');
+}
+
+function showAlert(elementId, type, message) {
+    const el = document.getElementById(elementId);
+    el.style.display = 'block';
+    if (type === 'success') {
+        el.style.background = 'rgba(16, 185, 129, 0.12)';
+        el.style.border = '1px solid rgba(16, 185, 129, 0.35)';
+        el.style.color = '#34d399';
+    } else if (type === 'danger') {
+        el.style.background = 'rgba(239, 68, 68, 0.12)';
+        el.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+        el.style.color = '#f87171';
+    } else {
+        el.style.background = 'rgba(59, 130, 246, 0.12)';
+        el.style.border = '1px solid rgba(59, 130, 246, 0.35)';
+        el.style.color = '#60a5fa';
+    }
+    el.innerHTML = message;
+}
+
+function testServerFromSidepanel(serverId) {
+    showAlert('spActionAlert', 'info', '<svg class="icon icon-spin icon-sm"><use href="#icon-loader"></use></svg> Prüfe SSH-Verbindung...');
+    fetch('/api/v1/servers/' + serverId + '/test', { method: 'POST' })
+        .then(res => res.json())
+        .then(res => {
+            const statusEl = document.getElementById('spStatusBadge');
+            const tableStatusEl = document.getElementById('status-' + serverId);
+
+            if (res.success) {
+                const badge = '<span class="badge badge-success">Online</span>';
+                statusEl.innerHTML = badge;
+                if (tableStatusEl) tableStatusEl.innerHTML = badge;
+
+                let diag = '<strong>Verbindung erfolgreich!</strong> Latenz: ' + res.latency_ms + 'ms | OS: ' + (res.os_info || 'Linux') + '<br>';
+                diag += 'Jobs-Verzeichnis: ' + (res.jobs_dir_exists ? '<span style="color: #34d399;">✓ Vorhanden</span>' : '<span style="color: #f87171;">✗ Fehlt</span>') + ' | ';
+                diag += 'Scripts-Verzeichnis: ' + (res.scripts_dir_exists ? '<span style="color: #34d399;">✓ Vorhanden</span>' : '<span style="color: #f87171;">✗ Fehlt</span>') + ' | ';
+                diag += 'Scripte bereitgestellt: ' + (res.scripts_installed ? '<span style="color: #34d399;">✓ Installiert</span>' : '<span style="color: #f87171;">✗ Nicht installiert</span>');
+                showAlert('spActionAlert', 'success', diag);
+
+                // Update setup status text
+                document.getElementById('spSetupStatus').innerHTML =
+                    'Verzeichnisse: ' + (res.jobs_dir_exists && res.scripts_dir_exists ? 'Bereit' : 'Müssen angelegt werden') +
+                    ' | Scripte: ' + (res.scripts_installed ? 'Einsatzbereit' : 'Fehlen auf Zielserver');
+            } else {
+                const badge = '<span class="badge badge-danger">Offline</span>';
+                statusEl.innerHTML = badge;
+                if (tableStatusEl) tableStatusEl.innerHTML = badge;
+                showAlert('spActionAlert', 'danger', '<strong>Verbindungsfehler:</strong> ' + (res.error_message || 'Host nicht erreichbar'));
+            }
+        })
+        .catch(err => {
+            showAlert('spActionAlert', 'danger', 'Fehler beim Testen: ' + err.message);
+        });
+}
+
+function triggerSetupFromSidepanel() {
+    if (!currentServerData) return;
+    const serverId = currentServerData.id;
+
+    showAlert('spActionAlert', 'info', '<svg class="icon icon-spin icon-sm"><use href="#icon-loader"></use></svg> Richte Verzeichnisse ein und kopiere Scripte...');
+    fetch('/api/v1/servers/' + serverId + '/setup', { method: 'POST' })
+        .then(res => res.json())
+        .then(res => {
+            if (res.success) {
+                showAlert('spActionAlert', 'success', '<strong>Erfolg:</strong> ' + res.message);
+                document.getElementById('spSetupStatus').innerHTML =
+                    '<span style="color: #34d399;">✓ Einsatzbereit:</span> Verzeichnisse angelegt und Scripte (jobcon_ctl.sh, run_job.sh) installiert.';
+                // Refresh status
+                const badge = '<span class="badge badge-success">Online</span>';
+                document.getElementById('spStatusBadge').innerHTML = badge;
+                const tbl = document.getElementById('status-' + serverId);
+                if (tbl) tbl.innerHTML = badge;
+            } else {
+                showAlert('spActionAlert', 'danger', '<strong>Initialisierung fehlgeschlagen:</strong> ' + (res.error_message || 'Unbekannter Fehler'));
+            }
+        })
+        .catch(err => {
+            showAlert('spActionAlert', 'danger', 'Fehler beim Setup: ' + err.message);
+        });
+}
+
+function openEditServerModal(server) {
+    document.getElementById('editServerForm').action = '/web/servers/' + server.id + '/update';
+    document.getElementById('editServerId').value = server.id;
+    document.getElementById('editServerName').value = server.name;
+    document.getElementById('editServerHost').value = server.host;
+    document.getElementById('editServerPort').value = server.port || 22;
+    document.getElementById('editServerUser').value = server.user || 'talend';
+    document.getElementById('editServerKey').value = server.ssh_key_path;
+    document.getElementById('editJobsDir').value = server.jobs_dir || '/opt/talend/jobs';
+    document.getElementById('editScriptsDir').value = server.scripts_dir || '/opt/talend/scripts';
+    document.getElementById('editKeepReleases').value = server.keep_releases || 3;
+    document.getElementById('editServerModal').style.display = 'flex';
+}
+
+function openDeleteServerModal(serverId, serverName) {
+    document.getElementById('deleteModalTitle').innerHTML =
+        '<svg class="icon icon-md" style="color: var(--danger);"><use href="#icon-trash"></use></svg> ' +
+        'Execution Server &bdquo;' + escapeHtml(serverName) + '&ldquo; löschen';
+
+    document.getElementById('deleteModalBody').innerHTML =
+        '<div style="text-align: center; padding: 24px; color: var(--text-muted);">' +
+        '<svg class="icon icon-spin icon-md" style="margin-bottom: 8px;"><use href="#icon-loader"></use></svg>' +
+        '<div>Prüfe Server-Abhängigkeiten...</div></div>';
+
+    document.getElementById('deleteServerModal').style.display = 'flex';
+
+    fetch('/api/v1/servers/' + serverId + '/usage')
+        .then(res => {
+            if (!res.ok) throw new Error('Status ' + res.status);
+            return res.json();
+        })
+        .then(data => {
+            const body = document.getElementById('deleteModalBody');
+            const jobCount = data.job_count || 0;
+            const otherServers = data.other_servers || [];
+
+            // Case 1: No jobs assigned
+            if (jobCount === 0) {
+                body.innerHTML = `
+                    <p style="color: #e4e4e7; font-size: 13.5px; margin-bottom: 20px;">
+                        Möchten Sie den Execution Server <strong>${escapeHtml(serverName)}</strong> (<code>${escapeHtml(serverId)}</code>) wirklich löschen?
+                    </p>
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; color: var(--text-muted); margin-bottom: 20px;">
+                        <svg class="icon icon-sm" style="color: #34d399; vertical-align: middle; margin-right: 4px;"><use href="#icon-check"></use></svg>
+                        Es sind aktuell keine Talend Jobs an diesen Server gebunden. Der Server kann sicher entfernt werden.
+                    </div>
+                    <form action="/web/servers/${encodeURIComponent(serverId)}/delete" method="POST">
+                        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteServerModal').style.display='none'">Abbrechen</button>
+                            <button type="submit" class="btn btn-danger">Server endgültig löschen</button>
+                        </div>
+                    </form>
+                `;
+                return;
+            }
+
+            // Case 2: Jobs assigned, alternative servers exist
+            if (jobCount > 0 && otherServers.length > 0) {
+                let optionsHtml = '<option value="">-- Zielserver zur Umstellung auswählen --</option>';
+                otherServers.forEach(s => {
+                    optionsHtml += `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} (${escapeHtml(s.id)})</option>`;
+                });
+
+                let jobsPreview = '<ul style="margin: 6px 0 0 16px; padding: 0; max-height: 120px; overflow-y: auto; font-size: 12px; font-family: var(--mono); color: #d4d4d8;">';
+                data.jobs.forEach(j => {
+                    jobsPreview += `<li>${escapeHtml(j.name)} <span style="color: var(--text-muted); font-size: 11px;">(${escapeHtml(j.group_id)})</span></li>`;
+                });
+                jobsPreview += '</ul>';
+
+                body.innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 16px;">
+                        <div style="color: #f87171; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+                            <svg class="icon icon-md"><use href="#icon-alert-triangle"></use></svg>
+                            Server wird noch von ${jobCount} Job(s) verwendet!
+                        </div>
+                        <div style="color: #e4e4e7; font-size: 12px; margin-top: 6px;">
+                            Betroffene Jobs:
+                            ${jobsPreview}
+                        </div>
+                    </div>
+
+                    <form action="/web/servers/${encodeURIComponent(serverId)}/delete" method="POST" onsubmit="return validateReassignment(this)">
+                        <div class="form-group" style="margin-bottom: 20px;">
+                            <label for="targetServerSelect" style="font-weight: 600; color: #fff;">
+                                Zielserver zur automatischen Migration der Jobs:
+                            </label>
+                            <p style="font-size: 12px; color: var(--text-muted); margin: 2px 0 8px 0;">
+                                Alle oben aufgeführten Jobs werden automatisch auf den ausgewählten Server umgestellt, bevor <strong>${escapeHtml(serverName)}</strong> gelöscht wird.
+                            </p>
+                            <select id="targetServerSelect" name="target_server_id" required style="width: 100%; background: #111; border: 1px solid var(--surface-border); border-radius: var(--radius-xs); padding: 8px 12px; color: #fff;">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                            <button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteServerModal').style.display='none'">Abbrechen</button>
+                            <button type="submit" class="btn btn-danger">
+                                <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                                Jobs umstellen &amp; Server löschen
+                            </button>
+                        </div>
+                    </form>
+                `;
+                return;
+            }
+
+            // Case 3: Jobs assigned, but NO alternative servers exist
+            if (jobCount > 0 && otherServers.length === 0) {
+                let jobsPreview = '<ul style="margin: 6px 0 0 16px; padding: 0; max-height: 120px; overflow-y: auto; font-size: 12px; font-family: var(--mono); color: #d4d4d8;">';
+                data.jobs.forEach(j => {
+                    jobsPreview += `<li>${escapeHtml(j.name)}</li>`;
+                });
+                jobsPreview += '</ul>';
+
+                body.innerHTML = `
+                    <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 20px;">
+                        <div style="color: #f87171; font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 8px;">
+                            <svg class="icon icon-md"><use href="#icon-alert-triangle"></use></svg>
+                            Server kann nicht gelöscht werden
+                        </div>
+                        <p style="color: #e4e4e7; font-size: 12.5px; margin: 8px 0 4px 0; line-height: 1.4;">
+                            Dieser Execution Server wird noch von <strong>${jobCount} konfigurierten Job(s)</strong> verwendet:
+                        </p>
+                        ${jobsPreview}
+                        <p style="color: #e4e4e7; font-size: 12.5px; margin-top: 10px; line-height: 1.4;">
+                            Da <strong>kein weiterer Execution Server</strong> im System hinterlegt ist, können die Jobs nicht automatisch umgestellt werden.
+                            Bitte legen Sie zuerst einen alternativen Server an oder löschen Sie die Jobs, bevor dieser Server entfernt werden kann.
+                        </p>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteServerModal').style.display='none'">Verstanden</button>
+                    </div>
+                `;
+            }
+        })
+        .catch(err => {
+            document.getElementById('deleteModalBody').innerHTML = `
+                <div style="color: #f87171; padding: 16px; font-size: 13px;">
+                    Fehler beim Abrufen der Server-Daten: ${escapeHtml(err.message)}
+                </div>
+                <div style="display: flex; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteServerModal').style.display='none'">Schließen</button>
+                </div>
+            `;
+        });
+}
+
+function validateReassignment(form) {
+    const sel = form.querySelector('select[name="target_server_id"]');
+    if (!sel || !sel.value) {
+        alert('Bitte wählen Sie einen Zielserver zur Umstellung der Jobs aus.');
+        return false;
+    }
+    return true;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+</script>
 {{end}}

@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS servers (
     user TEXT NOT NULL DEFAULT 'talend',
     ssh_key_path TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'unknown',
+    jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs',
+    scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts',
+    keep_releases INTEGER NOT NULL DEFAULT 3,
     last_checked_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -87,6 +90,12 @@ CREATE INDEX IF NOT EXISTS idx_jobs_group_id ON jobs(group_id);
 `
 
 func (db *DB) Migrate() error {
-	_, err := db.Exec(schemaSQL)
-	return err
+	if _, err := db.Exec(schemaSQL); err != nil {
+		return err
+	}
+	// Safe additions for existing tables
+	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs'")
+	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts'")
+	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN keep_releases INTEGER NOT NULL DEFAULT 3")
+	return nil
 }

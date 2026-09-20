@@ -73,7 +73,69 @@ func (a *API) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	// Target server can be supplied via query param or json body
+	targetServerID := r.URL.Query().Get("target_server_id")
+	if targetServerID == "" && r.Body != nil {
+		var req struct {
+			TargetServerID string `json:"target_server_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		targetServerID = req.TargetServerID
+	}
+
+	if targetServerID != "" {
+		if err := a.db.DeleteServerWithJobReassignment(id, targetServerID); err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				a.jsonError(w, http.StatusNotFound, "server not found")
+				return
+			}
+			a.jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		a.jsonResponse(w, http.StatusOK, map[string]string{
+			"message":          "server deleted and jobs reassigned",
+			"target_server_id": targetServerID,
+		})
+		return
+	}
+
+	// If no target server is provided, check if jobs exist
+	jobs, err := a.db.GetJobsByServerID(id)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(jobs) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":     "server is still in use by configured jobs",
+			"job_count": len(jobs),
+			"jobs":      jobs,
+		})
+		return
+	}
+
 	if err := a.db.DeleteServer(id); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			a.jsonError(w, http.StatusNotFound, "server not found")
+			return
+		}
+		if errors.Is(err, db.ErrServerInUse) {
+			a.jsonError(w, http.StatusConflict, err.Error())
+			return
+		}
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.jsonResponse(w, http.StatusOK, map[string]string{"message": "server deleted"})
+}
+
+func (a *API) handleServerUsage(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	server, err := a.db.GetServer(id)
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "server not found")
 			return
@@ -81,7 +143,61 @@ func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.jsonResponse(w, http.StatusOK, map[string]string{"message": "server deleted"})
+
+	jobs, err := a.db.GetJobsByServerID(id)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if jobs == nil {
+		jobs = []db.Job{}
+	}
+
+	allServers, err := a.db.ListServers()
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var otherServers []db.Server
+	for _, s := range allServers {
+		if s.ID != id {
+			otherServers = append(otherServers, s)
+		}
+	}
+	if otherServers == nil {
+		otherServers = []db.Server{}
+	}
+
+	a.jsonResponse(w, http.StatusOK, map[string]any{
+		"server":        server,
+		"job_count":     len(jobs),
+		"jobs":          jobs,
+		"other_servers": otherServers,
+	})
+}
+
+func (a *API) handleSetupServer(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	server, err := a.db.GetServer(id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			a.jsonError(w, http.StatusNotFound, "server not found")
+			return
+		}
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	res, err := a.ssh.SetupServer(r.Context(), server)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if res.Success {
+		_ = a.db.UpdateServerStatus(id, "online")
+	}
+
+	a.jsonResponse(w, http.StatusOK, res)
 }
 
 func (a *API) handleTestServer(w http.ResponseWriter, r *http.Request) {

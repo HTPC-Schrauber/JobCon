@@ -7,6 +7,7 @@
 set -euo pipefail
 
 BASE_DIR="${TALEND_BASE_DIR:-/opt/talend}"
+JOBS_DIR="${TALEND_JOBS_DIR:-${BASE_DIR}/jobs}"
 
 JOB_NAME="${1:-}"
 if [[ -z "$JOB_NAME" ]]; then
@@ -16,7 +17,7 @@ if [[ -z "$JOB_NAME" ]]; then
 fi
 shift || true
 
-CURRENT_DIR="${BASE_DIR}/jobs/${JOB_NAME}/current"
+CURRENT_DIR="${JOBS_DIR}/${JOB_NAME}/current"
 
 if [[ ! -d "$CURRENT_DIR" ]]; then
     echo "ERROR: Job '${JOB_NAME}' ist nicht unter '${CURRENT_DIR}' installiert!" >&2
