@@ -191,7 +191,12 @@
                 <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Aufbewahrte Releases</div>
                 <div id="spKeepReleases" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #fff;"></div>
             </div>
+            <div style="grid-column: span 2;">
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Umgebungsdatei (.env Pfad)</div>
+                <div id="spEnvFile" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #fff;"></div>
+            </div>
         </div>
+
 
         <!-- Initialisierung / Deployment Status Card -->
         <div class="card" style="background: rgba(255,255,255,0.02); border-color: var(--surface-border-subtle); padding: 14px; margin-bottom: 24px;">
@@ -272,6 +277,11 @@
                 <input type="number" id="addKeepReleases" name="keep_releases" value="3" min="1" max="20" required>
                 <small style="color: var(--text-muted); font-size: 11px;">Anzahl der aktiven bzw. letzten Versionen (current, current-1, ...), die auf dem Server vorgehalten werden.</small>
             </div>
+            <div class="form-group">
+                <label for="addEnvFile">Umgebungsdatei (.env Pfad, optional)</label>
+                <input type="text" id="addEnvFile" name="env_file" placeholder="/opt/talend/jobs/.env">
+                <small style="color: var(--text-muted); font-size: 11px;">Standard-Pfad zur .env Datei auf diesem Server, falls abweichend von .env im Jobs-Verzeichnis.</small>
+            </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('addServerModal').style.display='none'">Abbrechen</button>
                 <button type="submit" class="btn btn-primary">Server speichern</button>
@@ -328,6 +338,11 @@
                 <input type="number" id="editKeepReleases" name="keep_releases" min="1" max="20" required>
                 <small style="color: var(--text-muted); font-size: 11px;">Anzahl der aktiven bzw. letzten Versionen (current, current-1, ...), die auf dem Server vorgehalten werden.</small>
             </div>
+            <div class="form-group">
+                <label for="editEnvFile">Umgebungsdatei (.env Pfad, optional)</label>
+                <input type="text" id="editEnvFile" name="env_file" placeholder="/opt/talend/jobs/.env">
+                <small style="color: var(--text-muted); font-size: 11px;">Standard-Pfad zur .env Datei auf diesem Server, falls abweichend von .env im Jobs-Verzeichnis.</small>
+            </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('editServerModal').style.display='none'">Abbrechen</button>
                 <button type="submit" class="btn btn-primary">Änderungen speichern</button>
@@ -335,6 +350,7 @@
         </form>
     </div>
 </div>
+
 
 <!-- ========================================================================= -->
 <!-- MODAL: SERVER LÖSCHEN (MIT JOB-CHECK & REASSIGNMENT)                     -->
@@ -390,6 +406,7 @@ function openServerSidepanel(serverId) {
             document.getElementById('spJobsDir').innerText = s.jobs_dir || '/opt/talend/jobs';
             document.getElementById('spScriptsDir').innerText = s.scripts_dir || '/opt/talend/scripts';
             document.getElementById('spKeepReleases').innerText = s.keep_releases || 3;
+            document.getElementById('spEnvFile').innerText = s.env_file || '.env (Standard)';
             document.getElementById('spLastChecked').innerText = s.last_checked_at ? new Date(s.last_checked_at).toLocaleString('de-DE') : 'Noch nicht geprüft';
 
             // Status Badge
@@ -532,6 +549,7 @@ function openEditServerModal(server) {
     document.getElementById('editJobsDir').value = server.jobs_dir || '/opt/talend/jobs';
     document.getElementById('editScriptsDir').value = server.scripts_dir || '/opt/talend/scripts';
     document.getElementById('editKeepReleases').value = server.keep_releases || 3;
+    document.getElementById('editEnvFile').value = server.env_file || '';
     document.getElementById('editServerModal').style.display = 'flex';
 }
 

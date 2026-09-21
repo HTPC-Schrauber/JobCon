@@ -23,6 +23,7 @@ type Server struct {
 	Status        string     `json:"status"` // "online", "offline", "unknown"
 	JobsDir       string     `json:"jobs_dir"`
 	ScriptsDir    string     `json:"scripts_dir"`
+	EnvFile       string     `json:"env_file"`
 	KeepReleases  int        `json:"keep_releases"`
 	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
@@ -54,6 +55,9 @@ type Job struct {
 	DefaultContext  string    `json:"default_context"`
 	AllowConcurrent bool      `json:"allow_concurrent"`
 	RetentionRuns   int       `json:"retention_runs"`
+	EnvFile         string    `json:"env_file"`
+	IsDeployed      bool      `json:"is_deployed"`
+	DeployedVersion string    `json:"deployed_version,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -141,16 +145,16 @@ func (db *DB) CreateServer(s *Server) error {
 		s.KeepReleases = 3
 	}
 
-	query := `INSERT INTO servers (id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, keep_releases, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := db.Exec(query, s.ID, s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.Status, s.JobsDir, s.ScriptsDir, s.KeepReleases, s.CreatedAt, s.UpdatedAt)
+	query := `INSERT INTO servers (id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, env_file, keep_releases, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := db.Exec(query, s.ID, s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.Status, s.JobsDir, s.ScriptsDir, s.EnvFile, s.KeepReleases, s.CreatedAt, s.UpdatedAt)
 	return err
 }
 
 func (db *DB) GetServer(id string) (*Server, error) {
-	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, keep_releases, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
+	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
 	var s Server
-	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -158,7 +162,7 @@ func (db *DB) GetServer(id string) (*Server, error) {
 }
 
 func (db *DB) ListServers() ([]Server, error) {
-	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, keep_releases, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
+	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +171,7 @@ func (db *DB) ListServers() ([]Server, error) {
 	var servers []Server
 	for rows.Next() {
 		var s Server
-		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
 		servers = append(servers, s)
@@ -186,8 +190,8 @@ func (db *DB) UpdateServer(s *Server) error {
 	if s.KeepReleases <= 0 {
 		s.KeepReleases = 3
 	}
-	res, err := db.Exec(`UPDATE servers SET name = ?, host = ?, port = ?, user = ?, ssh_key_path = ?, jobs_dir = ?, scripts_dir = ?, keep_releases = ?, updated_at = ? WHERE id = ?`,
-		s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.JobsDir, s.ScriptsDir, s.KeepReleases, s.UpdatedAt, s.ID)
+	res, err := db.Exec(`UPDATE servers SET name = ?, host = ?, port = ?, user = ?, ssh_key_path = ?, jobs_dir = ?, scripts_dir = ?, env_file = ?, keep_releases = ?, updated_at = ? WHERE id = ?`,
+		s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.JobsDir, s.ScriptsDir, s.EnvFile, s.KeepReleases, s.UpdatedAt, s.ID)
 	if err != nil {
 		return err
 	}
@@ -207,7 +211,7 @@ func (db *DB) UpdateServerStatus(id, status string) error {
 
 func (db *DB) GetJobsByServerID(serverID string) ([]Job, error) {
 	rows, err := db.Query(`
-		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.created_at, j.updated_at
+		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
 		LEFT JOIN servers s ON j.server_id = s.id
 		WHERE j.server_id = ?
@@ -221,10 +225,12 @@ func (db *DB) GetJobsByServerID(serverID string) ([]Job, error) {
 	for rows.Next() {
 		var j Job
 		var allowConcurrent int
-		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		var isDeployed int
+		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		j.AllowConcurrent = allowConcurrent == 1
+		j.IsDeployed = isDeployed == 1
 		jobs = append(jobs, j)
 	}
 	return jobs, rows.Err()
@@ -408,32 +414,43 @@ func (db *DB) CreateJob(j *Job) error {
 		j.RetentionRuns = 10
 	}
 
-	query := `INSERT INTO jobs (id, name, server_id, group_id, artifact_id, active_version, nexus_repo, default_context, allow_concurrent, retention_runs, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := db.Exec(query, j.ID, j.Name, j.ServerID, j.GroupID, j.ArtifactID, j.ActiveVersion, j.NexusRepo, j.DefaultContext, j.AllowConcurrent, j.RetentionRuns, j.CreatedAt, j.UpdatedAt)
+	allowConcurrent := 0
+	if j.AllowConcurrent {
+		allowConcurrent = 1
+	}
+	isDeployed := 0
+	if j.IsDeployed {
+		isDeployed = 1
+	}
+
+	query := `INSERT INTO jobs (id, name, server_id, group_id, artifact_id, active_version, nexus_repo, default_context, allow_concurrent, retention_runs, env_file, is_deployed, deployed_version, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := db.Exec(query, j.ID, j.Name, j.ServerID, j.GroupID, j.ArtifactID, j.ActiveVersion, j.NexusRepo, j.DefaultContext, allowConcurrent, j.RetentionRuns, j.EnvFile, isDeployed, j.DeployedVersion, j.CreatedAt, j.UpdatedAt)
 	return err
 }
 
 func (db *DB) GetJob(id string) (*Job, error) {
 	row := db.QueryRow(`
-		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.created_at, j.updated_at
+		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
 		LEFT JOIN servers s ON j.server_id = s.id
 		WHERE j.id = ?`, id)
 
 	var j Job
 	var allowConcurrent int
-	err := row.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.CreatedAt, &j.UpdatedAt)
+	var isDeployed int
+	err := row.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	j.AllowConcurrent = allowConcurrent == 1
+	j.IsDeployed = isDeployed == 1
 	return &j, err
 }
 
 func (db *DB) ListJobs() ([]Job, error) {
 	rows, err := db.Query(`
-		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.created_at, j.updated_at
+		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
 		LEFT JOIN servers s ON j.server_id = s.id
 		ORDER BY j.name ASC`)
@@ -446,10 +463,12 @@ func (db *DB) ListJobs() ([]Job, error) {
 	for rows.Next() {
 		var j Job
 		var allowConcurrent int
-		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		var isDeployed int
+		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		j.AllowConcurrent = allowConcurrent == 1
+		j.IsDeployed = isDeployed == 1
 		jobs = append(jobs, j)
 	}
 	return jobs, rows.Err()
@@ -463,9 +482,26 @@ func (db *DB) UpdateJob(j *Job) error {
 	}
 
 	res, err := db.Exec(`
-		UPDATE jobs SET name = ?, server_id = ?, group_id = ?, artifact_id = ?, active_version = ?, nexus_repo = ?, default_context = ?, allow_concurrent = ?, retention_runs = ?, updated_at = ?
+		UPDATE jobs SET name = ?, server_id = ?, group_id = ?, artifact_id = ?, active_version = ?, nexus_repo = ?, default_context = ?, allow_concurrent = ?, retention_runs = ?, env_file = ?, updated_at = ?
 		WHERE id = ?`,
-		j.Name, j.ServerID, j.GroupID, j.ArtifactID, j.ActiveVersion, j.NexusRepo, j.DefaultContext, allowConcurrent, j.RetentionRuns, j.UpdatedAt, j.ID)
+		j.Name, j.ServerID, j.GroupID, j.ArtifactID, j.ActiveVersion, j.NexusRepo, j.DefaultContext, allowConcurrent, j.RetentionRuns, j.EnvFile, j.UpdatedAt, j.ID)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (db *DB) SetJobDeployed(id string, isDeployed bool, version string) error {
+	now := time.Now()
+	dep := 0
+	if isDeployed {
+		dep = 1
+	}
+	res, err := db.Exec(`UPDATE jobs SET is_deployed = ?, deployed_version = ?, updated_at = ? WHERE id = ?`, dep, version, now, id)
 	if err != nil {
 		return err
 	}
@@ -855,7 +891,7 @@ func (db *DB) ListJobsPaged(filter JobFilter) (*JobPageResult, error) {
 		SELECT 
 			j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, 
 			j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, 
-			j.retention_runs, j.created_at, j.updated_at,
+			j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at,
 			COALESCE(le.id, ''), COALESCE(le.action, ''), COALESCE(le.status, ''), 
 			le.started_at, le.exit_code, le.duration_ms
 		FROM jobs j
@@ -876,16 +912,18 @@ func (db *DB) ListJobsPaged(filter JobFilter) (*JobPageResult, error) {
 	for rows.Next() {
 		var item JobWithRunInfo
 		var allowConcurrent int
+		var isDeployed int
 		if err := rows.Scan(
 			&item.ID, &item.Name, &item.ServerID, &item.ServerName, &item.GroupID, &item.ArtifactID,
 			&item.ActiveVersion, &item.NexusRepo, &item.DefaultContext, &allowConcurrent,
-			&item.RetentionRuns, &item.CreatedAt, &item.UpdatedAt,
+			&item.RetentionRuns, &item.EnvFile, &isDeployed, &item.DeployedVersion, &item.CreatedAt, &item.UpdatedAt,
 			&item.LastRunID, &item.LastRunAction, &item.LastRunStatus,
 			&item.LastRunStartedAt, &item.LastRunExitCode, &item.LastRunDurationMS,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan paged job: %w", err)
 		}
 		item.AllowConcurrent = allowConcurrent == 1
+		item.IsDeployed = isDeployed == 1
 		jobs = append(jobs, item)
 	}
 

@@ -121,6 +121,15 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 		t.Errorf("expected job with LastRunStatus 'success', got %+v", paged.Jobs)
 	}
 
+	// Test SetJobDeployed
+	if err := database.SetJobDeployed("job-01", true, "1.2.3"); err != nil {
+		t.Fatalf("failed to set job deployed: %v", err)
+	}
+	jobCheck, err := database.GetJob("job-01")
+	if err != nil || !jobCheck.IsDeployed || jobCheck.DeployedVersion != "1.2.3" {
+		t.Errorf("expected job to be deployed v1.2.3, got is_deployed=%v, ver=%s (err: %v)", jobCheck.IsDeployed, jobCheck.DeployedVersion, err)
+	}
+
 	// Test User Preferences
 	_ = database.CreateUser(&User{ID: "u-01", Username: "prefuser", PasswordHash: "hash", DisplayName: "Pref User", Role: "viewer"})
 	if err := database.SetUserPreference("u-01", "page_size", "50"); err != nil {

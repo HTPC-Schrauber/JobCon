@@ -156,6 +156,12 @@ func (m *ExecutionManager) StartExecution(
 		keepReleases = 3
 	}
 
+	// Determine environment file
+	envFile := job.EnvFile
+	if envFile == "" {
+		envFile = server.EnvFile
+	}
+
 	// Build CLI command
 	var cmdParts []string
 	if action == "deploy" {
@@ -166,6 +172,11 @@ func (m *ExecutionManager) StartExecution(
 			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
 			"--keep", fmt.Sprintf("%d", keepReleases),
 		)
+	} else if action == "undeploy" {
+		cmdParts = append(cmdParts, ctlScript, "undeploy",
+			"--job", fmt.Sprintf("%q", job.ArtifactID),
+			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
+		)
 	} else {
 		// Run action
 		cmdParts = append(cmdParts, ctlScript, "run",
@@ -175,6 +186,10 @@ func (m *ExecutionManager) StartExecution(
 			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
 			"--context", fmt.Sprintf("%q", targetContext),
 		)
+
+		if envFile != "" {
+			cmdParts = append(cmdParts, "--env-file", fmt.Sprintf("%q", envFile))
+		}
 
 		if len(params) > 0 {
 			cmdParts = append(cmdParts, "--params")
@@ -238,9 +253,17 @@ func (m *ExecutionManager) StartExecution(
 
 		_ = m.db.UpdateExecutionStatus(executionID, status, &exitCode, &duration)
 
-		// If this was a successful deploy, set active_version on the job
+		// If this was a successful deploy or run, set active_version and deployed status on the job
 		if action == "deploy" && status == "success" {
 			_ = m.db.UpdateJobActiveVersion(jobID, targetVersion)
+			_ = m.db.SetJobDeployed(jobID, true, targetVersion)
+		} else if action == "run" && (status == "success" || (runErr == nil && exitCode != 10 && exitCode != 11 && exitCode != 12 && exitCode != 20 && exitCode != 21)) {
+			if targetVersion != "" {
+				_ = m.db.UpdateJobActiveVersion(jobID, targetVersion)
+			}
+			_ = m.db.SetJobDeployed(jobID, true, targetVersion)
+		} else if action == "undeploy" && status == "success" {
+			_ = m.db.SetJobDeployed(jobID, false, "")
 		}
 
 		log.Printf("[Execution %s] Finished with status %s (exit code %d, duration %dms)",
@@ -248,6 +271,33 @@ func (m *ExecutionManager) StartExecution(
 	}()
 
 	return execution, nil
+}
+
+// UndeployJobSync executes undeploy synchronously on the remote execution server
+func (m *ExecutionManager) UndeployJobSync(ctx context.Context, jobID string) error {
+	job, err := m.db.GetJob(jobID)
+	if err != nil {
+		return err
+	}
+	server, err := m.db.GetServer(job.ServerID)
+	if err != nil {
+		return err
+	}
+	scriptsDir := server.ScriptsDir
+	if scriptsDir == "" {
+		scriptsDir = "/opt/talend/scripts"
+	}
+	jobsDir := server.JobsDir
+	if jobsDir == "" {
+		jobsDir = "/opt/talend/jobs"
+	}
+	ctlScript := fmt.Sprintf("%s/jobcon_ctl.sh", strings.TrimRight(scriptsDir, "/"))
+	remoteCommand := fmt.Sprintf("%s undeploy --job %q --jobs-dir %q", ctlScript, job.ArtifactID, jobsDir)
+	_, err = m.sshRunner.RunCommand(ctx, server, remoteCommand, nil)
+	if err == nil {
+		_ = m.db.SetJobDeployed(jobID, false, "")
+	}
+	return err
 }
 
 // AbortExecution cancels a running execution

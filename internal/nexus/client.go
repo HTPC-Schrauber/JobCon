@@ -115,8 +115,13 @@ func sanitizeNexusQuery(q string) string {
 	return strings.TrimSpace(q)
 }
 
-// SearchComponents queries Nexus REST API for Maven components
+// SearchComponents queries Nexus REST API for Maven components (backwards compatible)
 func (c *Client) SearchComponents(ctx context.Context, repository, groupFilter, query string) ([]Component, error) {
+	return c.SearchComponentsAdvanced(ctx, repository, groupFilter, "", query)
+}
+
+// SearchComponentsAdvanced queries Nexus REST API with specific group, name, and query filters
+func (c *Client) SearchComponentsAdvanced(ctx context.Context, repository, groupFilter, nameFilter, query string) ([]Component, error) {
 	if c.BaseURL == "" {
 		return nil, fmt.Errorf("nexus base_url is not configured")
 	}
@@ -124,14 +129,16 @@ func (c *Client) SearchComponents(ctx context.Context, repository, groupFilter, 
 	cleanQuery := sanitizeNexusQuery(query)
 	cleanGroup := strings.TrimSpace(groupFilter)
 	cleanGroup = strings.TrimLeft(cleanGroup, "*? \t")
+	cleanName := sanitizeNexusQuery(nameFilter)
 
 	endpoint := fmt.Sprintf("%s/service/rest/v1/search", c.BaseURL)
 
 	var allComponents []Component
 	var continuationToken *string
 
-	// Paginate through results (up to 20 pages / 1000 items max)
-	for page := 0; page < 20; page++ {
+	// Limit to max 3 pages (up to 150 items) to prevent timeouts on massive Nexus clusters
+	maxPages := 3
+	for page := 0; page < maxPages; page++ {
 		params := url.Values{}
 		if repository != "" {
 			params.Set("repository", repository)
@@ -141,6 +148,13 @@ func (c *Client) SearchComponents(ctx context.Context, repository, groupFilter, 
 				params.Set("group", cleanGroup+"*")
 			} else {
 				params.Set("group", cleanGroup)
+			}
+		}
+		if cleanName != "" {
+			if !strings.HasSuffix(cleanName, "*") {
+				params.Set("name", cleanName+"*")
+			} else {
+				params.Set("name", cleanName)
 			}
 		}
 		if cleanQuery != "" {
@@ -209,9 +223,14 @@ func (c *Client) SearchComponents(ctx context.Context, repository, groupFilter, 
 	return allComponents, nil
 }
 
-// BrowseTree groups components by Group -> Artifact -> Versions for hierarchical UI picker
+// BrowseTree groups components by Group -> Artifact -> Versions for hierarchical UI picker (backwards compatible)
 func (c *Client) BrowseTree(ctx context.Context, repository, groupFilter, search string) ([]GroupNode, error) {
-	components, err := c.SearchComponents(ctx, repository, groupFilter, search)
+	return c.BrowseTreeAdvanced(ctx, repository, groupFilter, "", search)
+}
+
+// BrowseTreeAdvanced groups components by Group -> Artifact -> Versions with group and name filters
+func (c *Client) BrowseTreeAdvanced(ctx context.Context, repository, groupFilter, nameFilter, search string) ([]GroupNode, error) {
+	components, err := c.SearchComponentsAdvanced(ctx, repository, groupFilter, nameFilter, search)
 	if err != nil {
 		return nil, err
 	}

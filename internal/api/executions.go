@@ -2,10 +2,12 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"jobcon/internal/db"
 	"jobcon/internal/runner"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func (a *API) handleListExecutions(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +71,30 @@ func (a *API) handleGetExecutionLogs(w http.ResponseWriter, r *http.Request) {
 	if broadcaster != nil && format != "raw" {
 		streamLogsSSE(w, r, broadcaster)
 		return
+	}
+
+	// If SSE was requested (via format=sse or Accept header) but execution already finished:
+	if format == "sse" || (format != "raw" && strings.Contains(r.Header.Get("Accept"), "text/event-stream")) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		flusher, ok := w.(http.Flusher)
+		if ok {
+			if exec.LogPath != "" {
+				if logBytes, err := a.storage.ReadLog(exec.LogPath); err == nil {
+					lines := strings.Split(string(logBytes), "\n")
+					for _, line := range lines {
+						if line != "" {
+							fmt.Fprintf(w, "data: %s\n\n", line)
+						}
+					}
+				}
+			}
+			fmt.Fprintf(w, "event: end\ndata: [JobCon] Execution stream ended\n\n")
+			flusher.Flush()
+			return
+		}
 	}
 
 	// Execution finished or raw format requested: read from file

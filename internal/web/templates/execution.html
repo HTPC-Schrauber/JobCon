@@ -61,6 +61,8 @@ const execId = "{{.Exec.ID}}";
 const initialStatus = "{{.Exec.Status}}";
 const outputEl = document.getElementById("consoleOutput");
 const autoScrollEl = document.getElementById("autoScroll");
+let statusPollTimer = null;
+let sseDone = false;
 
 function appendLine(text) {
     if (outputEl.innerText === "Lade Konsolenausgabe...") {
@@ -72,6 +74,46 @@ function appendLine(text) {
     }
 }
 
+function updateStatusUI(status) {
+    const badge = document.getElementById("statusBadge");
+    if (badge) {
+        let label = status;
+        if (window.t) {
+            label = window.t('status.' + status) || status;
+        } else {
+            if (status === 'success') label = 'Erfolg';
+            else if (status === 'failed') label = 'Fehler';
+            else if (status === 'running') label = 'Läuft';
+            else if (status === 'aborted') label = 'Abgebrochen';
+        }
+        badge.innerText = label;
+        badge.className = "badge " + (status === "success" ? "badge-success" : (status === "failed" ? "badge-danger" : (status === "aborted" ? "badge-warning" : "badge-running")));
+    }
+    const abortBtn = document.getElementById("abortBtn");
+    if (abortBtn && status !== "running" && status !== "pending") {
+        abortBtn.style.display = "none";
+    }
+}
+
+function fetchStatus() {
+    fetch("/api/v1/executions/" + execId)
+        .then(res => res.json())
+        .then(data => {
+            if (!data || !data.status) return;
+            updateStatusUI(data.status);
+            if (data.status !== "running" && data.status !== "pending") {
+                if (statusPollTimer) {
+                    clearInterval(statusPollTimer);
+                    statusPollTimer = null;
+                }
+                if (outputEl.innerText === "Lade Konsolenausgabe..." || outputEl.innerText.trim() === "") {
+                    loadRawLog();
+                }
+            }
+        })
+        .catch(err => console.error("Error fetching execution status:", err));
+}
+
 function connectSSE() {
     outputEl.innerText = "";
     const evtSource = new EventSource("/api/v1/executions/" + execId + "/logs");
@@ -81,29 +123,22 @@ function connectSSE() {
     };
 
     evtSource.addEventListener("end", function() {
+        sseDone = true;
         evtSource.close();
         appendLine("\n[JobCon] --- Ausführung beendet ---");
-        // Reload execution metadata to update badge
-        fetch("/api/v1/executions/" + execId)
-            .then(res => res.json())
-            .then(data => {
-                const badge = document.getElementById("statusBadge");
-                badge.innerText = data.status;
-                badge.className = "badge " + (data.status === "success" ? "badge-success" : "badge-danger");
-                const abortBtn = document.getElementById("abortBtn");
-                if (abortBtn) abortBtn.style.display = "none";
-            });
+        fetchStatus();
     });
 
     evtSource.onerror = function() {
         evtSource.close();
+        fetchStatus();
+        if (outputEl.innerText === "Lade Konsolenausgabe..." || outputEl.innerText.trim() === "") {
+            loadRawLog();
+        }
     };
 }
 
-if (initialStatus === "running" || initialStatus === "pending") {
-    connectSSE();
-} else {
-    // Finished execution: load full log
+function loadRawLog() {
     fetch("/api/v1/executions/" + execId + "/logs?format=raw")
         .then(res => res.text())
         .then(text => {
@@ -117,12 +152,20 @@ if (initialStatus === "running" || initialStatus === "pending") {
         });
 }
 
+if (initialStatus === "running" || initialStatus === "pending") {
+    connectSSE();
+    statusPollTimer = setInterval(fetchStatus, 1500);
+} else {
+    loadRawLog();
+}
+
 function abortExecution(id) {
     if (!confirm("Möchten Sie diese Ausführung wirklich abbrechen?")) return;
     fetch("/api/v1/executions/" + id + "/abort", { method: "POST" })
         .then(res => res.json())
         .then(data => {
             appendLine("[JobCon] Abbruch-Signal gesendet...");
+            fetchStatus();
         });
 }
 </script>

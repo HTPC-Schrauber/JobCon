@@ -12,6 +12,8 @@ import (
 )
 
 type Config struct {
+	Environment EnvironmentConfig `yaml:"environment"`
+	I18n        I18nConfig        `yaml:"i18n"`
 	Server      ServerConfig      `yaml:"server"`
 	TLS         TLSConfig         `yaml:"tls"`
 	Auth        AuthConfig        `yaml:"auth"`
@@ -19,6 +21,39 @@ type Config struct {
 	Storage     StorageConfig     `yaml:"storage"`
 	Nexus       NexusConfig       `yaml:"nexus"`
 	SSHDefaults SSHDefaultsConfig `yaml:"ssh_defaults"`
+}
+
+type EnvironmentConfig struct {
+	Name      string `json:"name" yaml:"name"`
+	Color     string `json:"color" yaml:"color"`
+	TextColor string `json:"text_color" yaml:"text_color"`
+}
+
+func (e EnvironmentConfig) EffectiveColor() string {
+	if e.Color != "" {
+		return e.Color
+	}
+	nameLower := strings.ToLower(e.Name)
+	if strings.Contains(nameLower, "prod") {
+		return "#dc2626" // Red
+	} else if strings.Contains(nameLower, "test") || strings.Contains(nameLower, "stage") || strings.Contains(nameLower, "qa") {
+		return "#d97706" // Amber / Orange
+	} else if strings.Contains(nameLower, "dev") || strings.Contains(nameLower, "local") {
+		return "#059669" // Emerald Green
+	}
+	return "#4b5563" // Neutral Gray
+}
+
+func (e EnvironmentConfig) EffectiveTextColor() string {
+	if e.TextColor != "" {
+		return e.TextColor
+	}
+	return "#ffffff"
+}
+
+type I18nConfig struct {
+	DefaultLanguage string `json:"default_language" yaml:"default_language"`
+	LocalesDir      string `json:"locales_dir" yaml:"locales_dir"`
 }
 
 type ServerConfig struct {
@@ -88,6 +123,10 @@ type SSHDefaultsConfig struct {
 // DefaultConfig returns reasonable defaults for Linux deployment
 func DefaultConfig() *Config {
 	return &Config{
+		I18n: I18nConfig{
+			DefaultLanguage: "en",
+			LocalesDir:      "",
+		},
 		Server: ServerConfig{
 			Bind:           "0.0.0.0",
 			Port:           8080,
@@ -172,6 +211,16 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Auth.LDAP.BindPassword = envLDAPPass
 	} else if cfg.Auth.LDAP.BindPasswordEnv != "" {
 		cfg.Auth.LDAP.BindPassword = os.Getenv(cfg.Auth.LDAP.BindPasswordEnv)
+	}
+
+	if envLang := os.Getenv("JOBCON_DEFAULT_LANGUAGE"); envLang != "" {
+		cfg.I18n.DefaultLanguage = envLang
+	}
+	if envLocales := os.Getenv("JOBCON_LOCALES_DIR"); envLocales != "" {
+		cfg.I18n.LocalesDir = envLocales
+	}
+	if cfg.I18n.DefaultLanguage == "" {
+		cfg.I18n.DefaultLanguage = "en"
 	}
 
 	// Session secret resolution

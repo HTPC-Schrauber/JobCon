@@ -6,8 +6,16 @@ JobCon ist ein leichtgewichtiger, Linux-nativer Ersatz für den Talend Administr
 
 * **Single-Binary-Architektur:** Entwickelt in reiner Go-Standardbibliothek + CGO-freiem SQLite (`modernc.org/sqlite`). Keine Java-, Node- oder Python-Laufzeitabhängigkeiten.
 * **Entkopplung von Deployment & Execution:**
-  * **Deployment:** Automatisierter Download aus Nexus & atomare Versionierung (`releases/{version}` und Symlink `current`).
+  * **Deployment & Undeployment:** Automatisierter Download aus Nexus & atomare Versionierung (`releases/{version}` und Symlink `current`) sowie sauberes Undeployen/Entfernen von Zielservern.
   * **Execution:** Lokaler Start ohne TAC-Overhead via `run_job.sh` für **JS7 / SOS JobScheduler** oder über JobCon SSH-Runner.
+  * **Deployment-Status:** Direkte Visualisierung (grüner/grauer Statuspunkt), ob Jobs auf den Zielservern bereitgestellt sind.
+* **Multi-Job Steuerung (Bulk Actions):**
+  * Komfortable Mehrfachauswahl via Klick, Shift+Klick (Bereich) und Strg/Cmd+Klick (Toggle) ganz ohne Checkboxen.
+  * Bulk-Aktionsleiste für Direktausführung (`▶ Start` ohne Modal-Popup), Deployment (`🚀 Deploy`) und Undeployment (`🗑️ Undeploy`).
+  * Dedizierter „Details“-Button zum Öffnen des Sidepanels.
+* **Umgebungs-Kennzeichnung (Environment Badge):** Konfigurierbare Anzeige der Umgebung (z. B. `DEV`, `TEST`, `PROD`) inklusive Farbakzentstreifen im UI.
+* **Mehrsprachigkeit (i18n):** Native Unterstützung für Englisch und Deutsch, umschaltbar im Header und benutzerbezogen gespeichert.
+* **Umgebungsvariablen (.env):** Automatisches Sourcing von `.env`-Dateien auf Zielsystemen pro Server oder individuell pro Job.
 * **Authentifizierung & Sicherheit:**
   * HTTP BasicAuth und Session-Cookies.
   * Benutzerverwaltung mit `bcrypt`-Passwort-Hashing.
@@ -54,11 +62,14 @@ Auf den Execution-Hosts werden die beiden Skripte aus dem Ordner `scripts/` unte
 
 1. **`jobcon_ctl.sh`** (Universal-Skript für JobCon):
    * Deployt Releases aus Nexus nach `/opt/talend/jobs/{job_name}/releases/{version}`.
+   * Undeployt und bereinigt Jobs (`undeploy`).
    * Schaltet atomar den Symlink `current` um.
    * Bereinigt alte Releases gemäß Retention-Vorgabe.
+   * Lädt Umgebungsvariablen aus `.env` (`--env-file`).
    * Startet den Job in einer eigenen Prozessgruppe (`setsid`).
 
 2. **`run_job.sh`** (Schlanker Starter für JS7 / Cron):
+   * Bindet automatisch `.env`-Dateien ein.
    * Führt das jeweils aktive Release direkt lokal aus:
      ```bash
      /opt/talend/scripts/run_job.sh <job_name> [optionale talend params...]
@@ -75,8 +86,13 @@ Alle API-Aufrufe erfordern Authentifizierung via `Authorization: Bearer <TOKEN>`
 | `GET` | `/healthz` | Health-Check (ohne Auth) |
 | `GET` | `/api/v1/jobs` | Liste aller Jobs |
 | `POST` | `/api/v1/jobs` | Neuen Job anlegen (Admin) |
+| `DELETE` | `/api/v1/jobs/{id}` | Job löschen (optional `?undeploy=true`) |
 | `POST` | `/api/v1/jobs/{id}/deploy` | Version auf Zielserver installieren |
+| `POST` | `/api/v1/jobs/{id}/undeploy` | Job vom Zielserver entfernen |
 | `POST` | `/api/v1/jobs/{id}/run` | Job starten (optional mit `?wait=true`) |
+| `POST` | `/api/v1/jobs/bulk/run` | Mehrere Jobs gleichzeitig starten |
+| `POST` | `/api/v1/jobs/bulk/deploy` | Mehrere Jobs gleichzeitig deployen |
+| `POST` | `/api/v1/jobs/bulk/undeploy` | Mehrere Jobs gleichzeitig undeployen |
 | `GET` | `/api/v1/jobs/{id}/artifact` | Nexus Download-URL und Metadaten |
 | `GET` | `/api/v1/executions` | Ausführungshistorie |
 | `GET` | `/api/v1/executions/{id}/logs` | Logs als Plain-Text oder SSE |

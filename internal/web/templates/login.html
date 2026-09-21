@@ -57,6 +57,11 @@
     <div class="login-wrapper">
         <div class="login-box">
             <div class="login-header">
+                {{if .EnvName}}
+                    <div style="margin-bottom: 12px;">
+                        <span class="env-badge" style="background-color: {{.EnvColor}}; color: {{.EnvTextColor}};">{{.EnvName}}</span>
+                    </div>
+                {{end}}
                 <div class="login-brand-mark">
                     <svg class="icon icon-lg" style="stroke: #0f0f0f; stroke-width: 2.5;" viewBox="0 0 24 24">
                         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>

@@ -129,6 +129,7 @@ Auf den Linux-Zielservern liegt die Ausführungslogik in zwei standardisierten B
 
 ### 3.2 Das Universal-Skript: `/opt/talend/scripts/jobcon_ctl.sh`
 Nimmt alle Parameter via CLI-Argumente entgegen (kein Rückkanal zu JobCon nötig).
+Unterstützt automatisches Einbinden von `.env`-Dateien (entweder über `--env-file <path>` oder standardmäßig aus `/opt/talend/jobs/{job}/.env` bzw. `/opt/talend/jobs/.env`).
 
 #### Befehle:
 1. **`deploy`** – Lädt Release herunter, entpackt versioniert, rotiert die Generations-Symlinks und bereinigt unverlinkte Versionen:
@@ -137,37 +138,61 @@ Nimmt alle Parameter via CLI-Argumente entgegen (kein Rückkanal zu JobCon nöti
        --job "sync_sap_kunden" \
        --version "1.4.2" \
        --nexus-url "https://nexus.intern/repo/.../sync_sap_kunden-1.4.2.zip" \
-       [--keep 3]
+       [--keep 3] \
+       [--env-file "/opt/talend/jobs/.env"]
    ```
    * *Ablauf:*
-     1. Prüft, ob `/opt/talend/jobs/{job}/releases/{version}` bereits existiert (falls ja: Download überspringen).
-     2. Download via `curl` in temporären Ordner (`releases/.tmp_{version}`).
-     3. Entpacken des ZIP-Archivs und Setzen der Dateirechte (`chmod +x`).
-     4. Generations-Symlink-Rotation: Aktualisiert die Symlink-Kette (`current`, `current-1`, `current-2`, ...) bis zu `--keep` Versionen ohne Duplikate.
-     5. Version-Retention: Löscht alle Release-Ordner in `releases/`, auf die kein aktiver Symlink zeigt (`rm -rf`). Überzählige `current-*` Symlinks jenseits `--keep` werden entfernt.
+     1. Lädt bei Vorhandensein Umgebungsvariablen aus der konfigurierten `.env`-Datei.
+     2. Prüft, ob `/opt/talend/jobs/{job}/releases/{version}` bereits existiert (falls ja: Download überspringen).
+     3. Download via `curl` in temporären Ordner (`releases/.tmp_{version}`).
+     4. Entpacken des ZIP-Archivs und Setzen der Dateirechte (`chmod +x`).
+     5. Generations-Symlink-Rotation: Aktualisiert die Symlink-Kette (`current`, `current-1`, `current-2`, ...) bis zu `--keep` Versionen ohne Duplikate.
+     6. Version-Retention: Löscht alle Release-Ordner in `releases/`, auf die kein aktiver Symlink zeigt (`rm -rf`). Überzählige `current-*` Symlinks jenseits `--keep` werden entfernt.
 
-2. **`run`** – Führt den Job aus:
+2. **`undeploy`** – Entfernt einen bereitgestellten Job und dessen Versionen vollständig vom Zielserver:
+   ```bash
+   /opt/talend/scripts/jobcon_ctl.sh undeploy \
+       --job "sync_sap_kunden" \
+       [--jobs-dir "/opt/talend/jobs"]
+   ```
+   * *Ablauf:*
+     1. Entfernt alle aktiven Symlinks (`current`, `current-*`).
+     2. Löscht alle installierten Releases unter `releases/`.
+     3. Entfernt das Job-Verzeichnis, falls keine weiteren Daten vorhanden sind.
+
+3. **`run`** – Führt den Job aus:
    ```bash
    /opt/talend/scripts/jobcon_ctl.sh run \
        --job "sync_sap_kunden" \
        [--version "1.4.2"] \
        [--nexus-url "..."] \
        [--context "Production"] \
-       [--params "--context_param date=2026-09-18"]
+       [--params "--context_param date=2026-09-18"] \
+       [--env-file "/opt/talend/jobs/.env"]
    ```
    * *Ablauf:*
-     1. Falls `--version` übergeben wurde und noch nicht als `current` aktiv ist: Führt intern erst `deploy` aus.
-     2. Startet den Job in einer eigenen Linux-Prozessgruppe (`setsid`):
+     1. Lädt Umgebungsvariablen aus der `.env`-Datei.
+     2. Falls `--version` übergeben wurde und noch nicht als `current` aktiv ist: Führt intern erst `deploy` aus.
+     3. Startet den Job in einer eigenen Linux-Prozessgruppe (`setsid`):
         ```bash
         exec "/opt/talend/jobs/${job}/current/${job}/${job}_run.sh" --context="${context}" ${params}
         ```
-     3. Gibt Exit-Code des Talend-Prozesses transparent an die aufrufende SSH-Session zurück.
+     4. Gibt Exit-Code des Talend-Prozesses transparent an die aufrufende SSH-Session zurück.
 
 ### 3.3 Der JS7-Starter: `/opt/talend/scripts/run_job.sh`
 Für JS7 / SOS JobScheduler optimiert: **Zero Network Hop, Zero Database Overhead**.
+Lädt automatisch Umgebungsvariablen aus `.env` (falls am Job oder im übergeordneten Jobs-Verzeichnis vorhanden oder via `TALEND_ENV_FILE` gesetzt).
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Sourcing .env falls vorhanden
+TALEND_ENV_FILE="${TALEND_ENV_FILE:-}"
+if [[ -n "$TALEND_ENV_FILE" && -f "$TALEND_ENV_FILE" ]]; then
+    set -a; source "$TALEND_ENV_FILE"; set +a
+elif [[ -f "/opt/talend/jobs/.env" ]]; then
+    set -a; source "/opt/talend/jobs/.env"; set +a
+fi
 
 JOB_NAME="${1:-}"
 if [[ -z "$JOB_NAME" ]]; then
@@ -175,6 +200,11 @@ if [[ -z "$JOB_NAME" ]]; then
     exit 1
 fi
 shift || true
+
+# Job-spezifische .env nachladen
+if [[ -f "/opt/talend/jobs/${JOB_NAME}/.env" ]]; then
+    set -a; source "/opt/talend/jobs/${JOB_NAME}/.env"; set +a
+fi
 
 JOB_RUN_SCRIPT="/opt/talend/jobs/${JOB_NAME}/current/${JOB_NAME}/${JOB_NAME}_run.sh"
 
@@ -279,6 +309,7 @@ CREATE TABLE servers (
     ssh_key_path TEXT NOT NULL,            -- Pfad zum Private Key auf JobCon-Host
     jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs',       -- Konfigurierbares Jobs-Verzeichnis
     scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts', -- Konfigurierbares Scripte-Verzeichnis
+    env_file TEXT NOT NULL DEFAULT '',                      -- Optionaler Pfad zu einer .env Datei auf dem Zielserver
     keep_releases INTEGER NOT NULL DEFAULT 3,               -- Vorgehaltene Release-Versionen (Default: 3)
     status TEXT NOT NULL DEFAULT 'unknown',-- 'online', 'offline', 'unknown'
     last_checked_at DATETIME,
@@ -307,11 +338,14 @@ CREATE TABLE jobs (
     server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE RESTRICT,
     group_id TEXT NOT NULL,                -- Maven GroupId (z.B. 'de.firma.talend')
     artifact_id TEXT NOT NULL,             -- Maven ArtifactId
-    active_version TEXT NOT NULL,          -- Aktuell produktive Version (z.B. '1.4.2')
+    active_version TEXT NOT NULL,          -- Aktuell konfigurierte Version (z.B. '1.4.2')
     nexus_repo TEXT NOT NULL,              -- z.B. 'talend-releases'
     default_context TEXT NOT NULL DEFAULT 'Default',
     allow_concurrent BOOLEAN NOT NULL DEFAULT 0,
     retention_runs INTEGER NOT NULL DEFAULT 10,
+    env_file TEXT NOT NULL DEFAULT '',         -- Optionaler Job-spezifischer Pfad zu .env
+    is_deployed BOOLEAN NOT NULL DEFAULT 0,    -- 1 wenn aktuell auf Zielserver deployed
+    deployed_version TEXT NOT NULL DEFAULT '', -- Aktuell auf Zielserver installierte Version
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -371,38 +405,56 @@ CREATE INDEX idx_executions_started_at ON executions(started_at DESC);
 Das UI wird via Go `embed.FS` vollständig in das Single-Binary kompiliert und benötigt keine externen Assets oder CDNs.
 
 ### 7.1 Hauptbereiche der Web-Oberfläche
-1. **Jobs Dashboard (`/`):**
+1. **Umgebungs-Kennzeichnung (Environment Badge):**
+   * **Prominenter Indikator:** Eindeutige Anzeige der aktuellen Umgebung (z. B. `DEV`, `TEST`, `PROD`) in der Navigationsleiste und auf der Login-Seite.
+   * **Farbkodierung:** Konfigurierbar in `config.yaml` (`name`, `color`, `text_color`). Ein farblicher Akzentstreifen am oberen Rand signalisiert sofort, auf welcher Instanz gearbeitet wird.
+2. **Jobs Dashboard (`/`):**
    * **Skalierbar für 1.400+ Jobs:** Vollständig serverseitige Paginierung (10, 25, 50, 100, 1.000 Einträge), Volltextsuche und Filterung nach `group_id` und Server direkt über integrierte Spaltenfilter (`.table-filter-row`).
    * **Serverseitige Sortierung:** Sortierbar nach Name, Gruppe, Zielserver, aktiver Version und Zeitpunkt des letzten Laufs.
    * **Gruppierungsansicht:** Checkbox „Nach Gruppen bündeln“ zur optischen und logischen Clusterung nach Maven `GroupId` (mit Beibehaltung der internen Sortierung innerhalb der Gruppen).
-   * **Klickbare Zeilen (`.job-row`):** Klick auf eine beliebige Stelle der Zeile öffnet direkt das Slide-Out-Sidepanel. Redundante Details-Buttons wurden entfernt.
+   * **Tastatur- & Maus-Mehrfachauswahl (Bulk Actions):**
+     * **Klick:** Selektiert eine einzelne Zeile.
+     * **Strg / Cmd + Klick:** Fügt Zeilen zur Auswahl hinzu oder entfernt sie (Toggle).
+     * **Shift + Klick:** Bereichsauswahl aller Zeilen zwischen der letzten und der angeklickten Zeile.
+     * *Hinweis:* Reine Zeilenklicks öffnen nicht mehr das Sidepanel, sondern steuern die Auswahl. Keine störenden Checkboxen in der Tabelle.
+   * **Dedizierter „Details“-Button:** Öffnet das Slide-Out-Sidepanel für die jeweilige Zeile.
+   * **Bulk-Aktionsleiste:** Erscheint dynamisch bei markierten Jobs über der Tabelle mit Anzeige der selektierten Anzahl:
+     * `▶ Start`: Startet alle markierten Jobs sofort direkt ohne modale Zwischenabfrage.
+     * `🚀 Deploy`: Stößt das Deployment der markierten Jobs an.
+     * `🗑️ Undeploy`: Entfernt die markierten Jobs von den Zielservern.
+     * `Auswahl aufheben`: Hebt die Zeilenselektion auf.
+   * **Deployment-Statusindikator:** Farbiger Punkt links neben dem Jobnamen (grün = auf Zielserver deployed, grau = nicht deployed) basierend auf `is_deployed`.
    * **Letzter Lauf:** Status-Badge, Startzeitpunkt, Dauer und Direkt-Icon 📄 zum Öffnen des Logs.
-   * **Aktions-Buttons:** Schnellstart (`▶ Start`) und Deployment (`🚀 Deploy`).
-2. **Slide-Out Sidepanel & Log-Großansicht:**
-   * Fährt bei Zeilenklick von rechts über den Bildschirm.
-   * Zeigt alle Job-Metadaten (Server, Maven-Koordinaten, Repository, Context, Concurrency, Retention).
+3. **Slide-Out Sidepanel & Log-Großansicht:**
+   * Fährt bei Klick auf „Details“ von rechts über den Bildschirm.
+   * Zeigt alle Job-Metadaten (Server, Maven-Koordinaten, Repository, Context, Concurrency, Retention, Deployment-Status, `.env`-Pfad).
    * Ausführungshistorie der letzten Läufe für diesen spezifischen Job.
    * Konsolen-Log-Vorschau mit Umschaltung zwischen Läufen.
    * **Button „⛶ Großansicht“:** Öffnet das vollständige Log in einem großen modalen Dialog mit Kopierfunktion („📋 Kopieren“) und Link zur Vollbild-Live-Konsole.
-   * Schnellaktionen im Header: [Starten], [Deployen], [Bearbeiten], [Löschen].
-3. **Modale Dialoge & Z-Index-Hierarchie:**
-   * Modale Hauptdialoge besitzen einen Z-Index von `2000`, verschachtelte Modale wie der Nexus-Picker besitzen `z-index: 2200`. Damit liegt auch bei Auswahldialogen und Fehlermeldungen (z. B. wenn Nexus nicht erreichbar ist) alles immer im absoluten Vordergrund vor dem aufrufenden Dialog und dem Sidepanel (`z-index: 1050`).
-   * Beim Öffnen von Formulardialogen (wie „Bearbeiten“) aus dem Sidepanel wird das Sidepanel automatisch geschlossen, um den Fokus auf die Eingabemaske zu lenken.
-4. **Nexus 3 Tree-View Artefakt-Browser:**
+   * Schnellaktionen im Header: [Starten] (öffnet modalen Parameter-Dialog), [Deployen], [Undeployen], [Bearbeiten], [Löschen].
+   * **Lösch-Sicherheitsabfrage:** Ist ein Job noch deployed, fragt JobCon beim Löschen, ob die Artefakte auch vom Zielserver entfernt werden sollen (`undeploy_server=true`).
+4. **Mehrsprachigkeit (i18n):**
+   * Vollständige Internationalisierung (Englisch als Default, Deutsch integriert).
+   * Sprachumschaltung direkt im Header-Menü für jeden Benutzer.
+   * Gespeichert in der Datenbank (`user_preferences`) und im Fallback-Cookie (`jobcon_lang`).
+   * Erweiterbar über externe Übersetzungsdateien (`locales_dir`).
+   * Integrierte JavaScript-Hilfsfunktion `window.t(key, ...args)`.
+5. **Nexus 3 Tree-View Artefakt-Browser:**
    * Beim Anlegen eines neuen Jobs: Button „📦 Aus Nexus auswählen“.
-   * Fragt die Nexus 3 REST-API `/service/rest/v1/components` über das JobCon-Backend ab (umgeht CORS & Auth-Probleme).
+   * Getrennte Eingabefelder für `GroupId` und `ArtifactId` zur präzisen Suche.
+   * Schutz vor Race Conditions durch `AbortController` und Request-Sequenzzähler.
    * Hierarchische Baumansicht (`GroupId` -> `ArtifactId` -> `Versions-Badges`).
-   * Übernimmt gewählte Koordinaten direkt in das Anlageformular unter Berücksichtigung bereits eingegebener Daten.
-5. **Globale Ausführungshistorie (`/executions`):**
+   * Übernimmt gewählte Koordinaten direkt in das Anlageformular.
+6. **Globale Ausführungshistorie (`/executions`):**
    * Dedizierte Übersichtsseite aller vergangenen und laufenden Ausführungen.
    * Schnellfilter nach Status (`Alle`, `Läuft`, `Erfolg`, `Fehler`, `Abgebrochen`).
-6. **Live-Konsole (`/executions/{id}`):**
+7. **Live-Konsole (`/executions/{id}`):**
    * SSE-Streaming von Konsolen-Logs in Echtzeit.
    * Suchfeld, Auto-Scroll-Pausierung und „Abort Job“-Button.
-7. **Einstellungsdialog (`/settings` - nur für Rolle `admin`):**
+8. **Einstellungsdialog (`/settings` - nur für Rolle `admin`):**
    * **Reiter „Execution Server“ (`/settings/servers`):**
-     * **Server-Sidepanel:** Klick auf eine Serverzeile öffnet ein interaktives Sidepanel mit Statusdiagnose (Erreichbarkeit, Verzeichnisse, installierte Scripte) und Liste der zugeordneten Jobs.
-     * **Konfigurierbare Verzeichnisse & Release-Retention:** `jobs_dir` (Default: `/opt/talend/jobs`), `scripts_dir` (Default: `/opt/talend/scripts`) und `keep_releases` (Anzahl aufzubewahrender Versionen via Generations-Symlinks, Default: `3`) pro Server anpassbar.
+     * **Server-Sidepanel:** Klick auf eine Serverzeile öffnet ein interaktives Sidepanel mit Statusdiagnose (Erreichbarkeit, Verzeichnisse, installierte Scripte, `.env`-Pfad) und Liste der zugeordneten Jobs.
+     * **Konfigurierbare Verzeichnisse & Release-Retention:** `jobs_dir` (Default: `/opt/talend/jobs`), `scripts_dir` (Default: `/opt/talend/scripts`), `env_file` und `keep_releases` pro Server anpassbar.
      * **Automatisches SSH-Setup („Scripte bereitstellen“):** Legt Zielverzeichnisse per SSH an (`mkdir -p`) und installiert die eingebetteten Controller-Scripte (`jobcon_ctl.sh`, `run_job.sh`) mit Rechten 0755.
      * **Sicheres Löschen:** Prüft verknüpfte Jobs; erfordert bei vorhandenen Jobs die Auswahl eines Zielservers zur atomaren Umschaltung vor dem Löschen.
      * **Button „Verbindung testen“:** Prüft SSH-Erreichbarkeit, Latenz und Vorhandensein der Zielverzeichnisse/Scripte.
@@ -426,9 +478,13 @@ Authentifizierung via `Authorization: Bearer <API_TOKEN>` oder HTTP BasicAuth.
 * **`POST /api/v1/jobs`** – Neuen Job anlegen.
 * **`GET /api/v1/jobs/{id}`** – Details eines Jobs.
 * **`PUT /api/v1/jobs/{id}`** – Bestehenden Job bearbeiten (Metadaten, Version, Server, etc.).
-* **`DELETE /api/v1/jobs/{id}`** – Job löschen.
+* **`DELETE /api/v1/jobs/{id}`** – Job löschen (optional `?undeploy=true` zur Bereinigung des Zielservers).
 * **`POST /api/v1/jobs/{id}/deploy`** – Deployt Version auf Zielserver (`"set_active": true`).
+* **`POST /api/v1/jobs/{id}/undeploy`** – Entfernt Versionen und Symlinks vom Zielserver.
 * **`POST /api/v1/jobs/{id}/run`** – Job ausführen. Parameter: `?wait=true` für synchrone Jenkins-Pipelines.
+* **`POST /api/v1/jobs/bulk/run`** – Führt mehrere Jobs gleichzeitig aus (`{"job_ids": ["job1", "job2"]}`).
+* **`POST /api/v1/jobs/bulk/deploy`** – Deployt mehrere Jobs gleichzeitig.
+* **`POST /api/v1/jobs/bulk/undeploy`** – Entfernt mehrere Jobs gleichzeitig von Zielservern.
 * **`POST /api/v1/executions/{id}/abort`** – Bricht laufende Ausführung per SSH-Prozessgruppen-Signal ab.
 * **`GET /api/v1/executions/{id}/logs`** – Roh-Text (`?format=raw`) oder SSE-Stream.
 
@@ -455,6 +511,15 @@ server:
   trusted_proxies:
     - "127.0.0.1/32"
     - "10.0.0.0/8"
+
+environment:
+  name: "PROD"                # z.B. DEV, TEST, STAGING, PROD (leer = kein Badge)
+  color: "#dc2626"            # Hintergrundfarbe für Badge und oberen Farbakzentstreifen
+  text_color: "#ffffff"       # Textfarbe des Badges
+
+i18n:
+  default_language: "en"      # Standard: "en" (English) oder "de" (Deutsch)
+  locales_dir: ""             # Optional: Pfad zu benutzerdefinierten JSON-Locales
 
 tls:
   enabled: false              # Bei vorgeschaltetem Nginx/Traefik: false
@@ -567,6 +632,15 @@ WantedBy=multi-user.target
 7. **Phase 5c: Nexus 3 Pfad-Normalisierung & Download-Robustheit [Abgeschlossen]**
    * Normalisierung von Nexus 3 Maven-Repository URLs: Trennung von REST-API-Aufrufen (`/service/rest/v1/...` an Host-Root) und Artefakt-Downloads (`/repository/{repo}/...`).
    * Robuste Unterstützung sowohl für Basis-URLs mit als auch ohne `/repository`-Suffix.
-8. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
+8. **Phase 5d: Multi-Job Steuerung, Undeploy, i18n & Umgebungs-Kennzeichnung [Abgeschlossen]**
+   * Konfigurierbares Environment-Badge (`DEV`, `TEST`, `PROD`) mit Farbstreifen im UI.
+   * Mausbasierte Mehrfachauswahl (Klick, Shift+Klick, Strg/Cmd+Klick) ohne Checkboxen; dedizierter Details-Button.
+   * Bulk-Aktionen: Sofort-Start (`▶ Start`), Deployment (`🚀 Deploy`) und Undeployment (`🗑️ Undeploy`).
+   * Undeploy-Unterstützung im Bash-Controller (`jobcon_ctl.sh undeploy`) und Runner.
+   * Optischer Deployment-Statusindikator (grüner/grauer Punkt) und Abfrage zum Server-Cleanup beim Job-Löschen.
+   * Dynamische `.env`-Sourcing auf Zielsystemen pro Server und pro Job.
+   * Vollständige Mehrsprachigkeit (i18n, DE/EN) mit Header-Sprachwechsler.
+   * Stabiler, racy-sicherer Nexus-Artefakt-Picker mit getrennten GroupId/ArtifactId-Feldern.
+9. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
    * Implementierung des LDAP-Authenticators (`go-ldap/ldap/v3`).
    * Reverse Proxy & TLS-Verifikation, systemd Deployment.

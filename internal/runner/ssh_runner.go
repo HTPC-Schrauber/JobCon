@@ -10,6 +10,7 @@ import (
 	"jobcon/scripts"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,7 +108,7 @@ func (r *SSHRunner) TestConnection(ctx context.Context, server *db.Server) (*Con
 		}, nil
 	}
 
-	addr := fmt.Sprintf("%s:%d", server.Host, server.Port)
+	addr := net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
 	conn, err := net.DialTimeout("tcp", addr, r.timeout)
 	if err != nil {
 		return &ConnectionTestResult{
@@ -220,7 +221,7 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 		return result, nil
 	}
 
-	addr := fmt.Sprintf("%s:%d", server.Host, server.Port)
+	addr := net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
 	conn, err := net.DialTimeout("tcp", addr, r.timeout)
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("TCP-Verbindung fehlgeschlagen: %v", err)

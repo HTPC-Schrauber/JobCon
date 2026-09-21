@@ -54,7 +54,11 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/jobs/{id}", roleWrap(auth.RoleAdmin, a.handleDeleteJob))
 	mux.Handle("GET /api/v1/jobs/{id}/artifact", authWrap(a.handleGetJobArtifact))
 	mux.Handle("POST /api/v1/jobs/{id}/deploy", roleWrap(auth.RoleOperator, a.handleDeployJob))
+	mux.Handle("POST /api/v1/jobs/{id}/undeploy", roleWrap(auth.RoleOperator, a.handleUndeployJob))
 	mux.Handle("POST /api/v1/jobs/{id}/run", roleWrap(auth.RoleOperator, a.handleRunJob))
+	mux.Handle("POST /api/v1/jobs/bulk/run", roleWrap(auth.RoleOperator, a.handleBulkRunJobs))
+	mux.Handle("POST /api/v1/jobs/bulk/deploy", roleWrap(auth.RoleOperator, a.handleBulkDeployJobs))
+	mux.Handle("POST /api/v1/jobs/bulk/undeploy", roleWrap(auth.RoleOperator, a.handleBulkUndeployJobs))
 
 	// Executions
 	mux.Handle("GET /api/v1/executions", authWrap(a.handleListExecutions))

@@ -192,6 +192,53 @@ func TestNexusSearchComponents_WithQuery(t *testing.T) {
 	}
 }
 
+func TestNexusSearchComponents_Advanced(t *testing.T) {
+	var capturedQ, capturedGroup, capturedRepo, capturedName string
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/service/rest/v1/search" {
+			capturedQ = r.URL.Query().Get("q")
+			capturedGroup = r.URL.Query().Get("group")
+			capturedRepo = r.URL.Query().Get("repository")
+			capturedName = r.URL.Query().Get("name")
+
+			res := searchResponse{
+				Items: []Component{
+					{Group: "de.firma.talend", Name: "sync_sap", Version: "1.0.0"},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(res)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	client := NewClient(mockServer.URL, "admin", "secret")
+
+	// Search using group and name
+	tree, err := client.BrowseTreeAdvanced(context.Background(), "snapshots", "de.firma.talend", "sync_sap", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tree) != 1 || tree[0].Group != "de.firma.talend" {
+		t.Fatalf("expected 1 group de.firma.talend, got %+v", tree)
+	}
+	if capturedRepo != "snapshots" {
+		t.Errorf("expected repo 'snapshots', got %s", capturedRepo)
+	}
+	if capturedGroup != "de.firma.talend*" {
+		t.Errorf("expected group 'de.firma.talend*', got %s", capturedGroup)
+	}
+	if capturedName != "sync_sap*" {
+		t.Errorf("expected name 'sync_sap*', got %s", capturedName)
+	}
+	if capturedQ != "" {
+		t.Errorf("expected empty q, got %s", capturedQ)
+	}
+}
+
 func TestNexusSearchComponents_ErrorParsing(t *testing.T) {
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/service/rest/v1/search" {

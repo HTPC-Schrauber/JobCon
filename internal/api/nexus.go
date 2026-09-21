@@ -69,6 +69,10 @@ func (a *API) handleTestNexus(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleSearchNexus(w http.ResponseWriter, r *http.Request) {
 	repo := r.URL.Query().Get("repo")
 	group := r.URL.Query().Get("group")
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		name = r.URL.Query().Get("artifact")
+	}
 	query := r.URL.Query().Get("query")
 
 	if repo == "" {
@@ -86,7 +90,7 @@ func (a *API) handleSearchNexus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := a.getNexusClient()
-	tree, err := client.BrowseTree(r.Context(), repo, group, query)
+	tree, err := client.BrowseTreeAdvanced(r.Context(), repo, group, name, query)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, "Nexus-Suche fehlgeschlagen: "+err.Error())
 		return

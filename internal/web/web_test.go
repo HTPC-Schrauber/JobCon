@@ -606,4 +606,326 @@ func TestWebServerSidepanelAndCRUD(t *testing.T) {
 	}
 }
 
+func TestWebLanguageSwitcher(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, _ := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	localAuth := auth.NewLocalAuthenticator(database)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(localAuth, database, sessions)
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	user := &db.User{ID: "u_lang", Username: "languser", Role: "admin", DisplayName: "Lang User"}
+	_ = database.CreateUser(user)
+	token := sessions.CreateSession(user)
+
+	// 1. POST /web/set-language with lang=de
+	form := url.Values{"lang": {"de"}}
+	req := httptest.NewRequest("POST", "/web/set-language", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+
+	cookieFound := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "jobcon_lang" && c.Value == "de" {
+			cookieFound = true
+			break
+		}
+	}
+	if !cookieFound {
+		t.Errorf("expected jobcon_lang=de cookie in response headers")
+	}
+
+	pref, err := database.GetUserPreference("u_lang", "language", "en")
+	if err != nil || pref != "de" {
+		t.Errorf("expected user preference 'de', got %s (err: %v)", pref, err)
+	}
+
+	// 2. GET /web/set-language?lang=en
+	req = httptest.NewRequest("GET", "/web/set-language?lang=en", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rec.Code)
+	}
+	prefEn, _ := database.GetUserPreference("u_lang", "language", "de")
+	if prefEn != "en" {
+		t.Errorf("expected user preference 'en', got %s", prefEn)
+	}
+
+	// 3. Render dashboard with lang cookie
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	req.AddCookie(&http.Cookie{Name: "jobcon_lang", Value: "de"})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK rendering with german language, got %d", rec.Code)
+	}
+}
+
+func TestWebBulkJobActions(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, _ := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	localAuth := auth.NewLocalAuthenticator(database)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(localAuth, database, sessions)
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	user := &db.User{ID: "admin_bulk", Username: "admin", Role: "admin"}
+	token := sessions.CreateSession(user)
+
+	srv := &db.Server{ID: "srv_bulk", Name: "Server Bulk", Host: "127.0.0.1", User: "talend"}
+	_ = database.CreateServer(srv)
+
+	j1 := &db.Job{ID: "job_b1", Name: "Job B1", ServerID: "srv_bulk", GroupID: "g", ArtifactID: "a1", ActiveVersion: "1.0", NexusRepo: "releases"}
+	j2 := &db.Job{ID: "job_b2", Name: "Job B2", ServerID: "srv_bulk", GroupID: "g", ArtifactID: "a2", ActiveVersion: "1.0", NexusRepo: "releases"}
+	_ = database.CreateJob(j1)
+	_ = database.CreateJob(j2)
+
+	// 1. Bulk Run
+	runForm := url.Values{"job_ids": {"job_b1,job_b2"}}
+	req := httptest.NewRequest("POST", "/web/jobs/bulk/run", strings.NewReader(runForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after bulk run, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/executions" {
+		t.Errorf("expected redirect to /executions, got %s", loc)
+	}
+
+	// 2. Bulk Deploy
+	deployForm := url.Values{
+		"job_ids": {"job_b1,job_b2"},
+		"version": {"2.0.0"},
+	}
+	req = httptest.NewRequest("POST", "/web/jobs/bulk/deploy", strings.NewReader(deployForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after bulk deploy, got %d", rec.Code)
+	}
+
+	// 3. Bulk Undeploy
+	undeployForm := url.Values{"job_ids": {"job_b1,job_b2"}}
+	req = httptest.NewRequest("POST", "/web/jobs/bulk/undeploy", strings.NewReader(undeployForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after bulk undeploy, got %d", rec.Code)
+	}
+}
+
+func TestWebJobDeleteWithUndeployServer(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, _ := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	localAuth := auth.NewLocalAuthenticator(database)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(localAuth, database, sessions)
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	user := &db.User{ID: "admin_del", Username: "admin", Role: "admin"}
+	token := sessions.CreateSession(user)
+
+	srv := &db.Server{ID: "srv_del", Name: "Server Del", Host: "127.0.0.1", User: "talend"}
+	_ = database.CreateServer(srv)
+
+	j := &db.Job{
+		ID:              "job_del_1",
+		Name:            "Job To Delete",
+		ServerID:        "srv_del",
+		GroupID:         "g",
+		ArtifactID:      "a",
+		ActiveVersion:   "1.0",
+		NexusRepo:       "releases",
+		IsDeployed:      true,
+		DeployedVersion: "1.0",
+	}
+	_ = database.CreateJob(j)
+
+	delForm := url.Values{"undeploy_server": {"true"}}
+	req := httptest.NewRequest("POST", "/web/jobs/job_del_1/delete", strings.NewReader(delForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after delete, got %d", rec.Code)
+	}
+
+	if _, err := database.GetJob("job_del_1"); err != db.ErrNotFound {
+		t.Errorf("expected job_del_1 to be deleted from database, got %v", err)
+	}
+}
+
+func TestWebJobAndServerEnvFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, _ := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	localAuth := auth.NewLocalAuthenticator(database)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(localAuth, database, sessions)
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	user := &db.User{ID: "admin_env", Username: "admin", Role: "admin"}
+	token := sessions.CreateSession(user)
+
+	// 1. Create Server with env_file
+	srvForm := url.Values{
+		"id":       {"srv_env_1"},
+		"name":     {"Server with Env"},
+		"host":     {"10.0.0.5"},
+		"user":     {"talend"},
+		"env_file": {"/opt/talend/.server.env"},
+	}
+	req := httptest.NewRequest("POST", "/web/servers/create", strings.NewReader(srvForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after server create, got %d", rec.Code)
+	}
+
+	srv, err := database.GetServer("srv_env_1")
+	if err != nil || srv.EnvFile != "/opt/talend/.server.env" {
+		t.Errorf("expected server env_file '/opt/talend/.server.env', got '%s'", srv.EnvFile)
+	}
+
+	// 2. Create Job with env_file
+	jobForm := url.Values{
+		"id":             {"job_env_1"},
+		"name":           {"Job with Env"},
+		"server_id":      {"srv_env_1"},
+		"group_id":       {"g"},
+		"artifact_id":    {"a"},
+		"active_version": {"1.0"},
+		"nexus_repo":     {"releases"},
+		"env_file":       {"/opt/talend/jobs/.job.env"},
+	}
+	req = httptest.NewRequest("POST", "/web/jobs/create", strings.NewReader(jobForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after job create, got %d", rec.Code)
+	}
+
+	job, err := database.GetJob("job_env_1")
+	if err != nil || job.EnvFile != "/opt/talend/jobs/.job.env" {
+		t.Errorf("expected job env_file '/opt/talend/jobs/.job.env', got '%s'", job.EnvFile)
+	}
+
+	// 3. Update Job env_file
+	jobUpdateForm := url.Values{
+		"name":           {"Job with Env Updated"},
+		"server_id":      {"srv_env_1"},
+		"group_id":       {"g"},
+		"artifact_id":    {"a"},
+		"active_version": {"1.0"},
+		"nexus_repo":     {"releases"},
+		"env_file":       {"/opt/talend/jobs/.job_v2.env"},
+	}
+	req = httptest.NewRequest("POST", "/web/jobs/job_env_1/update", strings.NewReader(jobUpdateForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect after job update, got %d", rec.Code)
+	}
+
+	jobUpdated, _ := database.GetJob("job_env_1")
+	if jobUpdated.EnvFile != "/opt/talend/jobs/.job_v2.env" {
+		t.Errorf("expected updated job env_file '/opt/talend/jobs/.job_v2.env', got '%s'", jobUpdated.EnvFile)
+	}
+}
+
+
 

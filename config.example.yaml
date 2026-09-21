@@ -2,6 +2,15 @@
 # JobCon Configuration Example (Linux)
 # ==============================================================================
 
+environment:
+  name: "DEV" # Options: "DEV", "TEST", "PROD" or custom description (e.g. "Staging")
+  color: "#059669" # Optional custom hex color (auto-assigned if empty: DEV=green, TEST=amber, PROD=red)
+  text_color: "#ffffff" # Optional text color for the badge
+
+i18n:
+  default_language: "en" # Options: "en" or "de"
+  locales_dir: "" # Optional: Path to custom directory with JSON locale files (e.g. "./locales")
+
 server:
   bind: "0.0.0.0"
   port: 8080

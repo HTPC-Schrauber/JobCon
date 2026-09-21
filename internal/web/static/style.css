@@ -1,5 +1,5 @@
-/* JobCon Enterprise Stylesheet - Inspired by Adam Hall Group (B2B Precision & Event Technology) */
 :root {
+  color-scheme: dark;
   /* Carbon & Graphite Palette */
   --bg: #0f0f0f;
   --surface: #171717;
@@ -444,6 +444,12 @@ input[type="text"], input[type="password"], input[type="email"], input[type="num
   font-size: 13px;
   transition: border-color 0.15s ease;
   font-family: inherit;
+  color-scheme: dark;
+}
+select option {
+  background-color: #171717;
+  color: #ffffff;
+  padding: 6px 10px;
 }
 input:focus, select:focus, textarea:focus {
   outline: none;
@@ -800,3 +806,97 @@ th.sortable:hover {
   font-weight: 600;
   color: var(--primary);
 }
+
+/* Environment Badge & Top Border */
+.env-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Multi-Job Selection & Table Rows */
+.job-row {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s ease;
+}
+.job-row.selected td {
+  background-color: rgba(245, 131, 69, 0.16) !important;
+}
+.job-row.selected td:first-child {
+  border-left: 3px solid var(--primary);
+}
+
+/* Deployed Status Indicator Dots */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.status-dot-deployed {
+  background-color: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+}
+.status-dot-undeployed {
+  background-color: #52525b;
+}
+
+/* Bulk Actions Toolbar */
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #1b1b1b;
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  margin-bottom: 12px;
+}
+.bulk-toolbar-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+}
+.bulk-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Language Switcher */
+.lang-switcher-select {
+  background: #171717;
+  border: 1px solid var(--surface-border);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+  font-weight: 500;
+  color-scheme: dark;
+}
+.lang-switcher-select:hover {
+  border-color: #484848;
+  color: #fff;
+}
+.lang-switcher-select option {
+  background-color: #171717;
+  color: #f4f4f5;
+  padding: 6px 10px;
+}
+

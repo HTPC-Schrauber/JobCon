@@ -16,15 +16,17 @@ NEXUS_USER=""
 NEXUS_PASS=""
 CONTEXT="Default"
 KEEP_RELEASES=3
+ENV_FILE=""
 EXTRA_PARAMS=()
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") <deploy|run> [options]
+Usage: $(basename "$0") <deploy|run|undeploy> [options]
 
 Commands:
   deploy    Download and unpack Talend job version, rotate generation symlinks (current, current-1, ...), purge unlinked releases
   run       Execute Talend job (deploys first if version specified & missing)
+  undeploy  Remove job and its releases from target system
 
 Options:
   --job <name>             Name/Artifact-ID of the Talend job (required)
@@ -35,6 +37,7 @@ Options:
   --context <context>      Talend context to run (default: Default)
   --base-dir <dir>         Talend base directory (default: /opt/talend)
   --jobs-dir <dir>         Talend jobs directory (default: <base-dir>/jobs)
+  --env-file <path>        Path to environment file to source before running (.env)
   --keep <num>             Number of release versions to retain via symlinks (default: 3)
   --params <args...>       Parameters forwarded to Talend job (e.g. --context_param key=val)
   -h, --help               Show this help message
@@ -87,6 +90,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --keep)
             KEEP_RELEASES="$2"
+            shift 2
+            ;;
+        --env-file)
+            ENV_FILE="$2"
             shift 2
             ;;
         --params)
@@ -339,6 +346,24 @@ do_run() {
     echo "[JobCon] Timestamp: $(date -Iseconds)"
     echo "[JobCon] ========================================================"
 
+    # Source environment file if available
+    local active_env="$ENV_FILE"
+    if [[ -z "$active_env" ]]; then
+        if [[ -f "${JOB_ROOT}/.env" ]]; then
+            active_env="${JOB_ROOT}/.env"
+        elif [[ -f "${BASE_DIR}/.env" ]]; then
+            active_env="${BASE_DIR}/.env"
+        fi
+    fi
+
+    if [[ -n "$active_env" && -f "$active_env" ]]; then
+        echo "[JobCon] Sourcing environment file: ${active_env}"
+        set -a
+        # shellcheck source=/dev/null
+        source "$active_env"
+        set +a
+    fi
+
     # Execute in its own process group via setsid so child Java processes can be killed as a group
     # Talend expects context as: --context=<name>
     local cmd_args=("--context=${CONTEXT}")
@@ -357,6 +382,25 @@ do_run() {
     exit $exit_code
 }
 
+# ------------------------------------------------------------------------------
+# UNDEPLOY ACTION
+# ------------------------------------------------------------------------------
+do_undeploy() {
+    echo "[JobCon] ========================================================"
+    echo "[JobCon] Undeploying Talend Job: ${JOB_NAME}"
+    echo "[JobCon] Job Root: ${JOB_ROOT}"
+    echo "[JobCon] Timestamp: $(date -Iseconds)"
+    echo "[JobCon] ========================================================"
+
+    if [[ -d "${JOB_ROOT}" || -L "${JOB_ROOT}" ]]; then
+        echo "[JobCon] Removing job directory and all installed releases: ${JOB_ROOT}"
+        rm -rf "${JOB_ROOT}"
+        echo "[JobCon] Job '${JOB_NAME}' successfully undeployed from execution host."
+    else
+        echo "[JobCon] Job '${JOB_NAME}' is not installed under ${JOB_ROOT} (already undeployed)."
+    fi
+}
+
 case "$COMMAND" in
     deploy)
         do_deploy
@@ -364,8 +408,11 @@ case "$COMMAND" in
     run)
         do_run
         ;;
+    undeploy)
+        do_undeploy
+        ;;
     *)
-        echo "ERROR: Unknown command '${COMMAND}'. Use 'deploy' or 'run'." >&2
+        echo "ERROR: Unknown command '${COMMAND}'. Use 'deploy', 'run', or 'undeploy'." >&2
         usage
         ;;
 esac

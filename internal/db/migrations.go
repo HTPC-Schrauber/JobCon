@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS servers (
     status TEXT NOT NULL DEFAULT 'unknown',
     jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs',
     scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts',
+    env_file TEXT NOT NULL DEFAULT '',
     keep_releases INTEGER NOT NULL DEFAULT 3,
     last_checked_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -41,6 +42,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     default_context TEXT NOT NULL DEFAULT 'Default',
     allow_concurrent INTEGER NOT NULL DEFAULT 0,
     retention_runs INTEGER NOT NULL DEFAULT 10,
+    env_file TEXT NOT NULL DEFAULT '',
+    is_deployed INTEGER NOT NULL DEFAULT 0,
+    deployed_version TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -96,6 +100,10 @@ func (db *DB) Migrate() error {
 	// Safe additions for existing tables
 	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs'")
 	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts'")
+	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN env_file TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN keep_releases INTEGER NOT NULL DEFAULT 3")
+	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN env_file TEXT NOT NULL DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN is_deployed INTEGER NOT NULL DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN deployed_version TEXT NOT NULL DEFAULT ''")
 	return nil
 }

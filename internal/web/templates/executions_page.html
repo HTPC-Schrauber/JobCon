@@ -42,10 +42,10 @@
                     <th style="text-align: right;">Aktionen</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="executionsTableBody">
                 {{range .Executions}}
-                <tr>
-                    <td>
+                <tr id="exec-row-{{.ID}}" data-exec-id="{{.ID}}" data-status="{{.Status}}">
+                    <td class="exec-status-cell">
                         {{if eq .Status "success"}}
                             <span class="badge badge-success">Erfolg</span>
                         {{else if eq .Status "failed"}}
@@ -65,12 +65,14 @@
                     <td>
                         {{if eq .Action "deploy"}}
                             <span style="color: var(--accent-cyan); font-weight: 600;">Deploy</span>
+                        {{else if eq .Action "undeploy"}}
+                            <span style="color: #f59e0b; font-weight: 600;">Undeploy</span>
                         {{else}}
                             <span>Ausführung</span>
                         {{end}}
                     </td>
                     <td><span class="badge badge-neutral" style="font-family: var(--mono);">{{.Version}}</span></td>
-                    <td style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
+                    <td class="exec-duration-cell" style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
                         {{if .DurationMS}}
                             {{.DurationMS}} ms
                         {{else}}
@@ -98,4 +100,71 @@
         </div>
     {{end}}
 </div>
+
+<script>
+(function() {
+    let pollTimer = null;
+
+    function hasRunningExecutions() {
+        const running = document.querySelectorAll('#executionsTableBody tr[data-status="running"], #executionsTableBody tr[data-status="pending"]');
+        return running.length > 0;
+    }
+
+    function getBadgeHtml(status) {
+        let label = status;
+        if (window.t) {
+            label = window.t('status.' + status) || status;
+        } else {
+            if (status === 'success') label = 'Erfolg';
+            else if (status === 'failed') label = 'Fehler';
+            else if (status === 'running') label = 'Läuft';
+            else if (status === 'aborted') label = 'Abgebrochen';
+        }
+
+        let badgeClass = 'badge-neutral';
+        if (status === 'success') badgeClass = 'badge-success';
+        else if (status === 'failed') badgeClass = 'badge-danger';
+        else if (status === 'running') badgeClass = 'badge-running';
+        else if (status === 'aborted') badgeClass = 'badge-warning';
+
+        return '<span class="badge ' + badgeClass + '">' + label + '</span>';
+    }
+
+    async function pollExecutions() {
+        try {
+            const res = await fetch('/api/v1/executions?limit=100');
+            if (!res.ok) return;
+            const execs = await res.json();
+            if (!Array.isArray(execs)) return;
+
+            execs.forEach(exec => {
+                const row = document.getElementById('exec-row-' + exec.id);
+                if (row) {
+                    const currentStatus = row.getAttribute('data-status');
+                    if (currentStatus !== exec.status) {
+                        row.setAttribute('data-status', exec.status);
+                        const statusCell = row.querySelector('.exec-status-cell');
+                        if (statusCell) {
+                            statusCell.innerHTML = getBadgeHtml(exec.status);
+                        }
+                    }
+                    if (exec.duration_ms) {
+                        const durCell = row.querySelector('.exec-duration-cell');
+                        if (durCell) {
+                            durCell.innerText = exec.duration_ms + ' ms';
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error polling executions:', e);
+        } finally {
+            const delay = hasRunningExecutions() ? 1500 : 5000;
+            pollTimer = setTimeout(pollExecutions, delay);
+        }
+    }
+
+    pollTimer = setTimeout(pollExecutions, hasRunningExecutions() ? 1500 : 4000);
+})();
+</script>
 {{end}}

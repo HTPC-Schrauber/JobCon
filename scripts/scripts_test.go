@@ -172,4 +172,59 @@ func TestJobconCtlGenerationSymlinks(t *testing.T) {
 	if len(entries) != 1 || entries[0].Name() != "2.0.0" {
 		t.Errorf("expected only release 2.0.0 in releases dir, found %+v", entries)
 	}
+
+	// 8. Test Undeploy
+	undeployCmd := exec.Command("/bin/bash", scriptPath, "undeploy",
+		"--job", jobName,
+		"--base-dir", baseDir,
+	)
+	undeployOut, err := undeployCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("undeploy failed: %v\nOutput: %s", err, string(undeployOut))
+	}
+
+	if _, err := os.Stat(jobRoot); !os.IsNotExist(err) {
+		t.Errorf("expected job root %s to be completely removed after undeploy", jobRoot)
+	}
+}
+
+func TestRunJobEnvSourcing(t *testing.T) {
+	scriptPath, err := filepath.Abs("run_job.sh")
+	if err != nil {
+		t.Fatalf("failed to find run_job.sh: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	baseDir := filepath.Join(tmpDir, "talend")
+	jobName := "env_test_job"
+	jobRoot := filepath.Join(baseDir, "jobs", jobName)
+	currentDir := filepath.Join(jobRoot, "current", jobName)
+	if err := os.MkdirAll(currentDir, 0755); err != nil {
+		t.Fatalf("failed to create dirs: %v", err)
+	}
+
+	// Create dummy talend job run script that prints environment variable
+	jobScript := filepath.Join(currentDir, jobName+"_run.sh")
+	scriptContent := "#!/bin/sh\necho \"CONF=$TALEND_CONF KEY=$TALEND_DECRYPTION_KEY\"\n"
+	if err := os.WriteFile(jobScript, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("failed to write job script: %v", err)
+	}
+
+	// Create .env file in baseDir
+	envContent := "TALEND_CONF=/etc/talend.conf\nTALEND_DECRYPTION_KEY=supersecret123\n"
+	if err := os.WriteFile(filepath.Join(baseDir, ".env"), []byte(envContent), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	cmd := exec.Command("/bin/bash", scriptPath, jobName)
+	cmd.Env = append(os.Environ(), "TALEND_BASE_DIR="+baseDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run_job.sh failed: %v\nOutput: %s", err, string(out))
+	}
+
+	outStr := string(out)
+	if !bytes.Contains(out, []byte("CONF=/etc/talend.conf")) || !bytes.Contains(out, []byte("KEY=supersecret123")) {
+		t.Errorf("expected sourced env vars in output, got: %s", outStr)
+	}
 }

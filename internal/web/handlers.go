@@ -11,6 +11,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/i18n"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
 	"log"
@@ -34,6 +35,7 @@ type WebHandler struct {
 	sessions  *auth.SessionManager
 	cfg       *config.Config
 	templates map[string]*template.Template
+	i18nMgr   *i18n.Manager
 }
 
 func NewWebHandler(
@@ -86,10 +88,43 @@ func NewWebHandler(
 		sessions:  sessions,
 		cfg:       cfg,
 		templates: templates,
+		i18nMgr: func() *i18n.Manager {
+			if cfg != nil && (cfg.I18n.LocalesDir != "" || cfg.I18n.DefaultLanguage != "") {
+				mgr := i18n.NewManager(cfg.I18n.LocalesDir)
+				if cfg.I18n.DefaultLanguage != "" {
+					mgr.SetDefaultLanguage(cfg.I18n.DefaultLanguage)
+				}
+				return mgr
+			}
+			return i18n.GetDefaultManager()
+		}(),
 	}, nil
 }
 
-func (h *WebHandler) render(w http.ResponseWriter, page string, data any) {
+func (h *WebHandler) getRequestLang(r *http.Request) string {
+	defaultLang := "en"
+	if h.cfg != nil && h.cfg.I18n.DefaultLanguage != "" {
+		defaultLang = h.cfg.I18n.DefaultLanguage
+	}
+	if r == nil {
+		return defaultLang
+	}
+	if u := auth.UserFromContext(r.Context()); u != nil {
+		if lang, err := h.db.GetUserPreference(u.ID, "language", ""); err == nil && lang != "" {
+			return lang
+		}
+	}
+	if cookie, err := r.Cookie("jobcon_lang"); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+	accept := r.Header.Get("Accept-Language")
+	if strings.HasPrefix(strings.ToLower(accept), "de") {
+		return "de"
+	}
+	return defaultLang
+}
+
+func (h *WebHandler) render(w http.ResponseWriter, r *http.Request, page string, data map[string]any) {
 	tmpl, ok := h.templates[page]
 	if !ok {
 		log.Printf("[Web] Template not found: %s", page)
@@ -100,6 +135,22 @@ func (h *WebHandler) render(w http.ResponseWriter, page string, data any) {
 	templateName := "layout.html"
 	if page == "login.html" {
 		templateName = "login.html"
+	}
+
+	if data == nil {
+		data = make(map[string]any)
+	}
+
+	lang := h.getRequestLang(r)
+	data["EnvName"] = h.cfg.Environment.Name
+	data["EnvColor"] = h.cfg.Environment.EffectiveColor()
+	data["EnvTextColor"] = h.cfg.Environment.EffectiveTextColor()
+	data["CurrentLang"] = lang
+	data["Languages"] = h.i18nMgr.GetAvailableLanguages()
+	data["I18nJSON"] = template.JS(h.i18nMgr.GetJSON(lang))
+	data["I18n"] = h.i18nMgr.GetLocalizer(lang)
+	data["T"] = func(key string, args ...any) string {
+		return h.i18nMgr.T(lang, key, args...)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -117,10 +168,12 @@ func (h *WebHandler) RegisterRoutes(mux *http.ServeMux) {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Auth routes
+	// Auth & Language routes
 	mux.HandleFunc("GET /login", h.handleLoginPage)
 	mux.HandleFunc("POST /login", h.handleLoginSubmit)
 	mux.HandleFunc("POST /logout", h.handleLogout)
+	mux.HandleFunc("POST /web/set-language", h.handleSetLanguage)
+	mux.HandleFunc("GET /web/set-language", h.handleSetLanguage)
 
 	// Protected routes
 	authWrap := func(fn http.HandlerFunc) http.Handler {
@@ -147,6 +200,10 @@ func (h *WebHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Form actions - Jobs
 	mux.Handle("POST /web/jobs/run", authWrap(h.handleWebJobRun))
 	mux.Handle("POST /web/jobs/deploy", authWrap(h.handleWebJobDeploy))
+	mux.Handle("POST /web/jobs/{id}/undeploy", authWrap(h.handleWebJobUndeploy))
+	mux.Handle("POST /web/jobs/bulk/run", authWrap(h.handleWebBulkRun))
+	mux.Handle("POST /web/jobs/bulk/deploy", authWrap(h.handleWebBulkDeploy))
+	mux.Handle("POST /web/jobs/bulk/undeploy", authWrap(h.handleWebBulkUndeploy))
 	mux.Handle("POST /web/jobs/create", adminWrap(h.handleWebJobCreate))
 	mux.Handle("POST /web/jobs/{id}/update", adminWrap(h.handleWebJobUpdate))
 	mux.Handle("POST /web/jobs/{id}/delete", adminWrap(h.handleWebJobDelete))
@@ -167,6 +224,7 @@ func (h *WebHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /web/settings/retention/clean", adminWrap(h.handleWebSettingsCleanRetention))
 }
 
+
 // -----------------------------------------------------------------------------
 // PAGES
 // -----------------------------------------------------------------------------
@@ -176,7 +234,7 @@ func (h *WebHandler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	h.render(w, "login.html", map[string]any{
+	h.render(w, r, "login.html", map[string]any{
 		"Error": r.URL.Query().Get("error"),
 	})
 }
@@ -323,7 +381,7 @@ func (h *WebHandler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"Servers":        servers,
 		"NexusRepos":     nexusRepos,
 	}
-	h.render(w, "dashboard.html", data)
+	h.render(w, r, "dashboard.html", data)
 }
 
 func (h *WebHandler) handleExecutionsPage(w http.ResponseWriter, r *http.Request) {
@@ -341,7 +399,7 @@ func (h *WebHandler) handleExecutionsPage(w http.ResponseWriter, r *http.Request
 		"Executions":   execs,
 		"FilterStatus": status,
 	}
-	h.render(w, "executions_page.html", data)
+	h.render(w, r, "executions_page.html", data)
 }
 
 func (h *WebHandler) handleExecutionPage(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +417,7 @@ func (h *WebHandler) handleExecutionPage(w http.ResponseWriter, r *http.Request)
 		"User":       user,
 		"Exec":       exec,
 	}
-	h.render(w, "execution.html", data)
+	h.render(w, r, "execution.html", data)
 }
 
 func (h *WebHandler) handleSettingsServers(w http.ResponseWriter, r *http.Request) {
@@ -374,7 +432,7 @@ func (h *WebHandler) handleSettingsServers(w http.ResponseWriter, r *http.Reques
 		"ErrorMsg":   r.URL.Query().Get("error"),
 		"SuccessMsg": r.URL.Query().Get("success"),
 	}
-	h.render(w, "settings_servers.html", data)
+	h.render(w, r, "settings_servers.html", data)
 }
 
 func (h *WebHandler) handleSettingsUsers(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +445,7 @@ func (h *WebHandler) handleSettingsUsers(w http.ResponseWriter, r *http.Request)
 		"User":       user,
 		"Users":      users,
 	}
-	h.render(w, "settings_users.html", data)
+	h.render(w, r, "settings_users.html", data)
 }
 
 func (h *WebHandler) handleSettingsSystem(w http.ResponseWriter, r *http.Request) {
@@ -424,12 +482,45 @@ func (h *WebHandler) handleSettingsSystem(w http.ResponseWriter, r *http.Request
 		"ErrorMsg":          r.URL.Query().Get("error"),
 		"NewTokenRaw":       r.URL.Query().Get("token"),
 	}
-	h.render(w, "settings_system.html", data)
+	h.render(w, r, "settings_system.html", data)
 }
+
 
 // -----------------------------------------------------------------------------
 // FORM ACTIONS
 // -----------------------------------------------------------------------------
+
+func (h *WebHandler) handleSetLanguage(w http.ResponseWriter, r *http.Request) {
+	lang := strings.TrimSpace(r.FormValue("lang"))
+	if lang == "" {
+		lang = r.URL.Query().Get("lang")
+	}
+	if lang == "" {
+		lang = "en"
+	}
+
+	u := auth.UserFromContext(r.Context())
+	if u == nil {
+		u, _ = h.authMW.AuthenticateRequest(r)
+	}
+	if u != nil {
+		_ = h.db.SetUserPreference(u.ID, "language", lang)
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "jobcon_lang",
+		Value:    lang,
+		Path:     "/",
+		MaxAge:   365 * 86400,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	referer := r.Referer()
+	if referer == "" {
+		referer = "/"
+	}
+	http.Redirect(w, r, referer, http.StatusSeeOther)
+}
 
 func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 	jobID := r.FormValue("job_id")
@@ -482,6 +573,126 @@ func (h *WebHandler) handleWebJobDeploy(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/executions/"+exec.ID, http.StatusSeeOther)
 }
 
+func (h *WebHandler) handleWebJobUndeploy(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = r.FormValue("job_id")
+	}
+	job, err := h.db.GetJob(id)
+	if err != nil {
+		http.Error(w, "Job nicht gefunden: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "web:unknown"
+	if user != nil {
+		triggeredBy = "web:" + user.Username
+	}
+
+	exec, err := h.runner.StartExecution(r.Context(), job.ID, "undeploy", "", "", nil, triggeredBy)
+	if err != nil {
+		http.Error(w, "Fehler beim Undeploy: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/executions/"+exec.ID, http.StatusSeeOther)
+}
+
+func (h *WebHandler) handleWebBulkRun(w http.ResponseWriter, r *http.Request) {
+	jobIDs := parseJobIDs(r)
+	if len(jobIDs) == 0 {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "web:unknown"
+	if user != nil {
+		triggeredBy = "web:" + user.Username
+	}
+
+	for _, id := range jobIDs {
+		job, err := h.db.GetJob(id)
+		if err != nil {
+			continue
+		}
+		_, _ = h.runner.StartExecution(r.Context(), job.ID, "run", job.ActiveVersion, job.DefaultContext, nil, triggeredBy)
+	}
+
+	http.Redirect(w, r, "/executions", http.StatusSeeOther)
+}
+
+func (h *WebHandler) handleWebBulkDeploy(w http.ResponseWriter, r *http.Request) {
+	jobIDs := parseJobIDs(r)
+	if len(jobIDs) == 0 {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	version := strings.TrimSpace(r.FormValue("version"))
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "web:unknown"
+	if user != nil {
+		triggeredBy = "web:" + user.Username
+	}
+
+	for _, id := range jobIDs {
+		job, err := h.db.GetJob(id)
+		if err != nil {
+			continue
+		}
+		targetVersion := version
+		if targetVersion == "" {
+			targetVersion = job.ActiveVersion
+		}
+		_, _ = h.runner.StartExecution(r.Context(), job.ID, "deploy", targetVersion, "", nil, triggeredBy)
+	}
+
+	http.Redirect(w, r, "/executions", http.StatusSeeOther)
+}
+
+func (h *WebHandler) handleWebBulkUndeploy(w http.ResponseWriter, r *http.Request) {
+	jobIDs := parseJobIDs(r)
+	if len(jobIDs) == 0 {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "web:unknown"
+	if user != nil {
+		triggeredBy = "web:" + user.Username
+	}
+
+	for _, id := range jobIDs {
+		job, err := h.db.GetJob(id)
+		if err != nil {
+			continue
+		}
+		_, _ = h.runner.StartExecution(r.Context(), job.ID, "undeploy", "", "", nil, triggeredBy)
+	}
+
+	http.Redirect(w, r, "/executions", http.StatusSeeOther)
+}
+
+func parseJobIDs(r *http.Request) []string {
+	raw := r.FormValue("job_ids")
+	if raw == "" {
+		return r.Form["job_ids"]
+	}
+	parts := strings.Split(raw, ",")
+	var ids []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			ids = append(ids, p)
+		}
+	}
+	return ids
+}
+
 func (h *WebHandler) handleWebJobCreate(w http.ResponseWriter, r *http.Request) {
 	allowConcurrent := r.FormValue("allow_concurrent") == "1"
 	job := &db.Job{
@@ -495,6 +706,7 @@ func (h *WebHandler) handleWebJobCreate(w http.ResponseWriter, r *http.Request) 
 		DefaultContext:  "Default",
 		AllowConcurrent: allowConcurrent,
 		RetentionRuns:   10,
+		EnvFile:         strings.TrimSpace(r.FormValue("env_file")),
 	}
 
 	if err := h.db.CreateJob(job); err != nil {
@@ -527,6 +739,7 @@ func (h *WebHandler) handleWebJobUpdate(w http.ResponseWriter, r *http.Request) 
 		DefaultContext:  r.FormValue("default_context"),
 		AllowConcurrent: allowConcurrent,
 		RetentionRuns:   retentionRuns,
+		EnvFile:         strings.TrimSpace(r.FormValue("env_file")),
 	}
 
 	if err := h.db.UpdateJob(job); err != nil {
@@ -540,6 +753,13 @@ func (h *WebHandler) handleWebJobDelete(w http.ResponseWriter, r *http.Request) 
 	id := r.PathValue("id")
 	if id == "" {
 		id = r.FormValue("id")
+	}
+	undeployVal := strings.ToLower(r.FormValue("undeploy_server"))
+	if undeployVal == "true" || undeployVal == "1" || undeployVal == "yes" {
+		job, err := h.db.GetJob(id)
+		if err == nil && job != nil && job.IsDeployed {
+			_ = h.runner.UndeployJobSync(r.Context(), id)
+		}
 	}
 	if err := h.db.DeleteJob(id); err != nil {
 		http.Error(w, "Fehler beim Löschen: "+err.Error(), http.StatusInternalServerError)
@@ -565,6 +785,7 @@ func (h *WebHandler) handleWebServerCreate(w http.ResponseWriter, r *http.Reques
 		SSHKeyPath: r.FormValue("ssh_key_path"),
 		JobsDir:    jobsDir,
 		ScriptsDir: scriptsDir,
+		EnvFile:    strings.TrimSpace(r.FormValue("env_file")),
 	}
 	var port int
 	if _, err := fmt.Sscanf(r.FormValue("port"), "%d", &port); err == nil && port > 0 {
@@ -582,6 +803,7 @@ func (h *WebHandler) handleWebServerCreate(w http.ResponseWriter, r *http.Reques
 	}
 	http.Redirect(w, r, "/settings/servers?success="+url.QueryEscape("Execution Server erfolgreich angelegt."), http.StatusSeeOther)
 }
+
 
 func (h *WebHandler) handleWebServerUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -601,6 +823,7 @@ func (h *WebHandler) handleWebServerUpdate(w http.ResponseWriter, r *http.Reques
 		SSHKeyPath: r.FormValue("ssh_key_path"),
 		JobsDir:    jobsDir,
 		ScriptsDir: scriptsDir,
+		EnvFile:    strings.TrimSpace(r.FormValue("env_file")),
 	}
 	var port int
 	if _, err := fmt.Sscanf(r.FormValue("port"), "%d", &port); err == nil && port > 0 {

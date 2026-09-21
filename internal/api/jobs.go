@@ -117,6 +117,9 @@ func (a *API) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if r.URL.Query().Get("undeploy") == "true" {
+		_ = a.runner.UndeployJobSync(r.Context(), id)
+	}
 	if err := a.db.DeleteJob(id); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "job not found")
@@ -232,4 +235,124 @@ func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.jsonResponse(w, http.StatusAccepted, exec)
+}
+
+func (a *API) handleUndeployJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "unknown"
+	if user != nil {
+		triggeredBy = user.Username
+	}
+
+	exec, err := a.runner.StartExecution(r.Context(), id, "undeploy", "", "", nil, triggeredBy)
+	if err != nil {
+		if errors.Is(err, runner.ErrJobAlreadyRunning) {
+			a.jsonError(w, http.StatusConflict, err.Error())
+			return
+		}
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	a.jsonResponse(w, http.StatusAccepted, exec)
+}
+
+type BulkJobsRequest struct {
+	JobIDs []string `json:"job_ids"`
+}
+
+type BulkJobResult struct {
+	JobID   string        `json:"job_id"`
+	Success bool          `json:"success"`
+	Exec    *db.Execution `json:"execution,omitempty"`
+	Error   string        `json:"error,omitempty"`
+}
+
+func (a *API) handleBulkRunJobs(w http.ResponseWriter, r *http.Request) {
+	var req BulkJobsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "unknown"
+	if user != nil {
+		triggeredBy = user.Username
+	}
+
+	var results []BulkJobResult
+	for _, id := range req.JobIDs {
+		job, err := a.db.GetJob(id)
+		if err != nil {
+			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
+			continue
+		}
+		exec, err := a.runner.StartExecution(r.Context(), id, "run", job.ActiveVersion, job.DefaultContext, nil, triggeredBy)
+		if err != nil {
+			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
+		} else {
+			results = append(results, BulkJobResult{JobID: id, Success: true, Exec: exec})
+		}
+	}
+
+	a.jsonResponse(w, http.StatusOK, results)
+}
+
+func (a *API) handleBulkDeployJobs(w http.ResponseWriter, r *http.Request) {
+	var req BulkJobsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "unknown"
+	if user != nil {
+		triggeredBy = user.Username
+	}
+
+	var results []BulkJobResult
+	for _, id := range req.JobIDs {
+		job, err := a.db.GetJob(id)
+		if err != nil {
+			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
+			continue
+		}
+		exec, err := a.runner.StartExecution(r.Context(), id, "deploy", job.ActiveVersion, "", nil, triggeredBy)
+		if err != nil {
+			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
+		} else {
+			results = append(results, BulkJobResult{JobID: id, Success: true, Exec: exec})
+		}
+	}
+
+	a.jsonResponse(w, http.StatusOK, results)
+}
+
+func (a *API) handleBulkUndeployJobs(w http.ResponseWriter, r *http.Request) {
+	var req BulkJobsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+	triggeredBy := "unknown"
+	if user != nil {
+		triggeredBy = user.Username
+	}
+
+	var results []BulkJobResult
+	for _, id := range req.JobIDs {
+		exec, err := a.runner.StartExecution(r.Context(), id, "undeploy", "", "", nil, triggeredBy)
+		if err != nil {
+			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
+		} else {
+			results = append(results, BulkJobResult{JobID: id, Success: true, Exec: exec})
+		}
+	}
+
+	a.jsonResponse(w, http.StatusOK, results)
 }

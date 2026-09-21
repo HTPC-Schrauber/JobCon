@@ -40,5 +40,22 @@ if [[ -z "$RUN_SCRIPT" || ! -x "$RUN_SCRIPT" ]]; then
     exit 3
 fi
 
+# Source environment file if available (.env)
+ENV_FILE="${TALEND_ENV_FILE:-}"
+if [[ -z "$ENV_FILE" ]]; then
+    if [[ -f "${JOBS_DIR}/${JOB_NAME}/.env" ]]; then
+        ENV_FILE="${JOBS_DIR}/${JOB_NAME}/.env"
+    elif [[ -f "${BASE_DIR}/.env" ]]; then
+        ENV_FILE="${BASE_DIR}/.env"
+    fi
+fi
+
+if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+    set +a
+fi
+
 # Execute directly, replacing current shell process
 exec "$RUN_SCRIPT" "$@"

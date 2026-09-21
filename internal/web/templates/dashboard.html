@@ -65,6 +65,32 @@
         </div>
     </div>
 
+    <!-- Bulk Action Toolbar -->
+    <div id="bulkToolbar" class="bulk-toolbar" style="display: none;">
+        <div class="bulk-toolbar-info">
+            <svg class="icon icon-md" style="color: var(--primary);"><use href="#icon-check"></use></svg>
+            <span id="bulkSelectedCount">0 ausgewählt</span>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="clearSelection()" style="padding: 2px 8px; font-size: 11px;">
+                <svg class="icon icon-sm"><use href="#icon-x"></use></svg>
+                {{call $.T "bulk.clear_selection"}}
+            </button>
+        </div>
+        <div class="bulk-toolbar-actions">
+            <button type="button" class="btn btn-primary btn-sm" onclick="bulkRunJobs()">
+                <svg class="icon icon-sm"><use href="#icon-play"></use></svg>
+                {{call $.T "bulk.start"}}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="bulkDeployJobs()">
+                <svg class="icon icon-sm"><use href="#icon-upload"></use></svg>
+                {{call $.T "bulk.deploy"}}
+            </button>
+            <button type="button" class="btn btn-danger btn-sm" onclick="bulkUndeployJobs()">
+                <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                {{call $.T "bulk.undeploy"}}
+            </button>
+        </div>
+    </div>
+
     <!-- Filter Form wrapping the Table -->
     <form id="filterForm" method="GET">
         <input type="hidden" name="page" id="pageInput" value="{{.CurrentPage}}">
@@ -78,27 +104,27 @@
                 <thead>
                     <tr>
                         <th class="sortable" onclick="setSort('name')">
-                            Job-Name {{if eq .SortBy "name"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
+                            {{call $.T "dashboard.col_name"}} {{if eq .SortBy "name"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('group_id')">
-                            Gruppe (GroupId) {{if eq .SortBy "group_id"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
+                            {{call $.T "dashboard.col_group"}} {{if eq .SortBy "group_id"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('server')">
-                            Zielserver {{if eq .SortBy "server"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
+                            {{call $.T "dashboard.col_server"}} {{if eq .SortBy "server"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('version')">
-                            Version {{if eq .SortBy "version"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
+                            {{call $.T "dashboard.col_version"}} {{if eq .SortBy "version"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
                         <th class="sortable" onclick="setSort('last_run')">
-                            Letzter Lauf {{if eq .SortBy "last_run"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
+                            {{call $.T "dashboard.col_last_run"}} {{if eq .SortBy "last_run"}}{{if eq .SortOrder "asc"}}<svg class="icon icon-sm"><use href="#icon-chevron-up"></use></svg>{{else}}<svg class="icon icon-sm"><use href="#icon-chevron-down"></use></svg>{{end}}{{end}}
                         </th>
-                        <th style="text-align: right;">Aktionen</th>
+                        <th style="text-align: right;">{{call $.T "dashboard.col_actions"}}</th>
                     </tr>
                     <tr class="table-filter-row">
                         <th>
                             <div style="position: relative; display: flex; align-items: center;">
                                 <svg class="icon icon-sm" style="position: absolute; left: 8px; color: var(--text-muted); pointer-events: none;"><use href="#icon-search"></use></svg>
-                                <input type="text" name="search" id="colSearchInput" value="{{.Search}}" placeholder="Job / Artefakt filtern..." class="col-filter-input" style="padding-left: 28px !important;" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitFilter();}">
+                                <input type="text" name="search" id="colSearchInput" value="{{.Search}}" placeholder="{{call $.T "dashboard.filter_search"}}" class="col-filter-input" style="padding-left: 28px !important;" onkeydown="if(event.key==='Enter'){event.preventDefault(); submitFilter();}">
                                 {{if .Search}}
                                     <button type="button" onclick="clearSearch()" title="Suche leeren" style="position: absolute; right: 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; display: flex; align-items: center;">
                                         <svg class="icon icon-sm"><use href="#icon-x"></use></svg>
@@ -108,7 +134,7 @@
                         </th>
                         <th>
                             <select name="group_id" onchange="submitFilter()" class="col-filter-select">
-                                <option value="">Alle Gruppen ({{len .DistinctGroups}})</option>
+                                <option value="">{{call $.T "dashboard.filter_all_groups"}} ({{len .DistinctGroups}})</option>
                                 {{range .DistinctGroups}}
                                     <option value="{{.}}" {{if eq $.GroupID .}}selected{{end}}>{{.}}</option>
                                 {{end}}
@@ -116,7 +142,7 @@
                         </th>
                         <th>
                             <select name="server_id" onchange="submitFilter()" class="col-filter-select">
-                                <option value="">Alle Server ({{len .Servers}})</option>
+                                <option value="">{{call $.T "dashboard.filter_all_servers"}} ({{len .Servers}})</option>
                                 {{range .Servers}}
                                     <option value="{{.ID}}" {{if eq $.ServerID .ID}}selected{{end}}>{{.Name}}</option>
                                 {{end}}
@@ -128,7 +154,7 @@
                             {{if or .Search .GroupID .ServerID}}
                                 <button type="button" class="btn btn-secondary btn-sm" onclick="resetFilters()" style="color: #f87171; padding: 2px 8px; font-size: 11px; white-space: nowrap;">
                                     <svg class="icon icon-sm"><use href="#icon-x"></use></svg>
-                                    Reset
+                                    {{call $.T "dashboard.reset_filters"}}
                                 </button>
                             {{end}}
                         </th>
@@ -149,13 +175,22 @@
                                     </td>
                                 </tr>
                             {{end}}
-                            <tr class="job-row" onclick="openSidepanel('{{.ID}}')">
+                            <tr class="job-row" id="job-row-{{.ID}}" data-job-id="{{.ID}}" onclick="handleRowClick(event, '{{.ID}}')">
                                 <td>
-                                    <div style="font-weight: 600; color: #fff;">
-                                        {{.Name}}
-                                    </div>
-                                    <div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">
-                                        {{.ArtifactID}}
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        {{if .IsDeployed}}
+                                            <span class="status-dot status-dot-deployed" title="{{call $.T "status.deployed"}}{{if .DeployedVersion}} (v{{.DeployedVersion}}){{end}}"></span>
+                                        {{else}}
+                                            <span class="status-dot status-dot-undeployed" title="{{call $.T "status.not_deployed"}}"></span>
+                                        {{end}}
+                                        <div>
+                                            <div style="font-weight: 600; color: #fff;">
+                                                {{.Name}}
+                                            </div>
+                                            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--mono);">
+                                                {{.ArtifactID}}
+                                            </div>
+                                        </div>
                                     </div>
                                 </td>
                                 <td style="font-size: 12px; color: #a1a1aa; font-family: var(--mono);">
@@ -186,30 +221,24 @@
                                             </div>
                                         {{end}}
                                     {{else}}
-                                        <span style="font-size: 12px; color: var(--text-muted);">- Nie -</span>
+                                        <span style="font-size: 12px; color: var(--text-muted);">{{call $.T "dashboard.never_run"}}</span>
                                     {{end}}
                                 </td>
                                 <td style="text-align: right;" onclick="event.stopPropagation()">
-                                    <div style="display: inline-flex; gap: 6px;">
-                                        <button type="button" class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openRunModal('{{.ID}}', '{{.Name}}', '{{.ActiveVersion}}', '{{.DefaultContext}}')">
-                                            <svg class="icon icon-sm"><use href="#icon-play"></use></svg>
-                                            Start
-                                        </button>
-                                        <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openDeployModal('{{.ID}}', '{{.Name}}', '{{.ActiveVersion}}')">
-                                            <svg class="icon icon-sm"><use href="#icon-upload"></use></svg>
-                                            Deploy
-                                        </button>
-                                    </div>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openSidepanel('{{.ID}}')">
+                                        <svg class="icon icon-sm"><use href="#icon-file-text"></use></svg>
+                                        {{call $.T "actions.details"}}
+                                    </button>
                                 </td>
                             </tr>
                         {{end}}
                     {{else}}
                         <tr>
                             <td colspan="6" style="text-align: center; padding: 48px; color: var(--text-muted);">
-                                Keine Jobs gefunden, die den Kriterien entsprechen.
+                                {{call $.T "dashboard.no_jobs"}}
                                 {{if or .Search .GroupID .ServerID}}
                                     <div style="margin-top: 8px;">
-                                        <a href="javascript:resetFilters()" style="color: var(--primary); text-decoration: underline;">Filter zurücksetzen</a>
+                                        <a href="javascript:resetFilters()" style="color: var(--primary); text-decoration: underline;">{{call $.T "dashboard.reset_filters"}}</a>
                                     </div>
                                 {{end}}
                             </td>
@@ -218,6 +247,7 @@
                 </tbody>
             </table>
         </div>
+
 
         {{if .Jobs}}
         <!-- Pagination Footer -->
@@ -257,20 +287,24 @@
         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--surface-border-subtle);">
             <button id="spRunBtn" class="btn btn-primary btn-sm">
                 <svg class="icon icon-sm"><use href="#icon-play"></use></svg>
-                Starten
+                {{call $.T "sidepanel.start"}}
             </button>
             <button id="spDeployBtn" class="btn btn-secondary btn-sm">
                 <svg class="icon icon-sm"><use href="#icon-upload"></use></svg>
-                Deployen
+                {{call $.T "sidepanel.deploy"}}
+            </button>
+            <button id="spUndeployBtn" class="btn btn-secondary btn-sm" style="color: #f87171;">
+                <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                {{call $.T "sidepanel.undeploy"}}
             </button>
             {{if eq .User.Role "admin"}}
                 <button id="spEditBtn" class="btn btn-secondary btn-sm">
                     <svg class="icon icon-sm"><use href="#icon-edit"></use></svg>
-                    Bearbeiten
+                    {{call $.T "sidepanel.edit"}}
                 </button>
                 <button id="spDeleteBtn" class="btn btn-danger btn-sm">
                     <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
-                    Löschen
+                    {{call $.T "sidepanel.delete"}}
                 </button>
             {{end}}
         </div>
@@ -278,41 +312,49 @@
         <!-- Details List -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px;">
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Gruppe (GroupId)</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.group"}}</div>
                 <div id="spGroupID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Artefakt (ArtifactId)</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.artifact"}}</div>
                 <div id="spArtifactID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Aktive Version</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.active_version"}}</div>
                 <div id="spActiveVersion" style="margin-top: 2px;"><span class="badge badge-success"></span></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Nexus Repository</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.deployed_state"}}</div>
+                <div id="spDeployedStatus" style="font-size: 13px; margin-top: 2px;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.nexus_repo"}}</div>
                 <div id="spNexusRepo" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Ziel Execution Server</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.target_server"}}</div>
                 <div id="spServerName" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
             </div>
             <div>
-                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Standard Context</div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.default_context"}}</div>
                 <div id="spDefaultContext" style="font-size: 13px; margin-top: 2px; color: #fff;"></div>
+            </div>
+            <div>
+                <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "modals.env_file"}}</div>
+                <div id="spEnvFile" style="font-size: 12px; font-family: var(--mono); margin-top: 2px; color: #fff;"></div>
             </div>
         </div>
 
         <!-- History of Executions for this Job -->
-        <h4 style="font-size: 13px; margin-bottom: 12px; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">Ausführungshistorie</h4>
+        <h4 style="font-size: 13px; margin-bottom: 12px; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.history"}}</h4>
         <div id="spExecutionsList" style="margin-bottom: 20px;">Lade Historie...</div>
 
         <!-- Latest Log Preview -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h4 style="font-size: 13px; margin: 0; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">Letztes Konsolen-Log</h4>
+            <h4 style="font-size: 13px; margin: 0; color: #e4e4e7; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.latest_log"}}</h4>
             <button id="spLogExpandBtn" type="button" class="btn btn-secondary btn-sm" style="display: none; padding: 2px 8px; font-size: 11px;" onclick="expandSidepanelLog()">
                 <svg class="icon icon-sm"><use href="#icon-maximize"></use></svg>
-                Großansicht
+                {{call $.T "sidepanel.fullscreen"}}
             </button>
         </div>
         <div id="spLogPreview" style="background: #0a0a0a; border: 1px solid var(--surface-border); border-radius: var(--radius-sm); padding: 12px; font-family: var(--mono); font-size: 11px; color: #a1a1aa; max-height: 250px; overflow-y: auto; white-space: pre-wrap;">
@@ -327,25 +369,25 @@
 <div id="editJobModal" class="modal-overlay" style="display: none;">
     <div class="modal" style="max-width: 600px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 id="editJobModalTitle" style="font-size: 17px; margin: 0; color: #fff;">Job bearbeiten</h3>
+            <h3 id="editJobModalTitle" style="font-size: 17px; margin: 0; color: #fff;">{{call $.T "modals.edit_job_title"}}</h3>
             <button type="button" class="btn btn-secondary btn-sm" onclick="openNexusPicker('edit')">
                 <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
-                Nexus durchsuchen...
+                {{call $.T "modals.search_nexus"}}
             </button>
         </div>
         <form id="editJobForm" action="" method="POST">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="editJobId">Job ID (unveränderlich)</label>
+                    <label for="editJobId">{{call $.T "modals.job_id"}}</label>
                     <input type="text" id="editJobId" name="id" readonly style="opacity: 0.6; cursor: not-allowed;">
                 </div>
                 <div class="form-group">
-                    <label for="editJobName">Anzeigename</label>
+                    <label for="editJobName">{{call $.T "modals.job_name"}}</label>
                     <input type="text" id="editJobName" name="name" required>
                 </div>
             </div>
             <div class="form-group">
-                <label for="editServerID">Ziel Execution Server</label>
+                <label for="editServerID">{{call $.T "modals.server"}}</label>
                 <select id="editServerID" name="server_id" required>
                     {{range .Servers}}
                         <option value="{{.ID}}">{{.Name}} ({{.Host}})</option>
@@ -354,21 +396,21 @@
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="editGroupId">Maven GroupId</label>
+                    <label for="editGroupId">{{call $.T "modals.group_id"}}</label>
                     <input type="text" id="editGroupId" name="group_id" required>
                 </div>
                 <div class="form-group">
-                    <label for="editArtifactId">Maven ArtifactId</label>
+                    <label for="editArtifactId">{{call $.T "modals.artifact_id"}}</label>
                     <input type="text" id="editArtifactId" name="artifact_id" required>
                 </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="editActiveVersion">Aktive Version</label>
+                    <label for="editActiveVersion">{{call $.T "modals.initial_version"}}</label>
                     <input type="text" id="editActiveVersion" name="active_version" required>
                 </div>
                 <div class="form-group">
-                    <label for="editNexusRepo">Nexus Repository</label>
+                    <label for="editNexusRepo">{{call $.T "modals.nexus_repo"}}</label>
                     <select id="editNexusRepo" name="nexus_repo" required>
                         {{range .NexusRepos}}
                             <option value="{{.ID}}">{{.Label}} ({{.ID}})</option>
@@ -378,23 +420,27 @@
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="editDefaultContext">Standard Context</label>
+                    <label for="editDefaultContext">{{call $.T "modals.default_context"}}</label>
                     <input type="text" id="editDefaultContext" name="default_context" value="Default" required>
                 </div>
                 <div class="form-group">
-                    <label for="editRetentionRuns">Aufbewahrte Läufe (Retention)</label>
+                    <label for="editRetentionRuns">{{call $.T "modals.retention_runs"}}</label>
                     <input type="number" id="editRetentionRuns" name="retention_runs" value="10" min="1" max="100" required>
                 </div>
+            </div>
+            <div class="form-group">
+                <label for="editEnvFile">{{call $.T "modals.env_file"}}</label>
+                <input type="text" id="editEnvFile" name="env_file" placeholder="/opt/talend/jobs/.env">
             </div>
             <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px;">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-weight: normal;">
                     <input type="checkbox" id="editAllowConcurrent" name="allow_concurrent" value="1">
-                    Parallele Läufe erlauben
+                    {{call $.T "modals.allow_concurrent"}}
                 </label>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('editJobModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Änderungen speichern</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('editJobModal').style.display='none'">{{call $.T "actions.cancel"}}</button>
+                <button type="submit" class="btn btn-primary">{{call $.T "actions.save"}}</button>
             </div>
         </form>
     </div>
@@ -406,25 +452,25 @@
 <div id="newJobModal" class="modal-overlay" style="display: none;">
     <div class="modal" style="max-width: 650px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="font-size: 17px; color: #fff; margin: 0;">Neuen Talend Job anlegen</h3>
+            <h3 style="font-size: 17px; color: #fff; margin: 0;">{{call $.T "modals.new_job_title"}}</h3>
             <button type="button" class="btn btn-secondary btn-sm" onclick="openNexusPicker('new')">
                 <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
-                Nexus durchsuchen...
+                {{call $.T "modals.search_nexus"}}
             </button>
         </div>
         <form action="/web/jobs/create" method="POST">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="newJobId">Job ID (Schlüssel)</label>
+                    <label for="newJobId">{{call $.T "modals.job_id"}}</label>
                     <input type="text" id="newJobId" name="id" placeholder="sync_sap_kunden" required>
                 </div>
                 <div class="form-group">
-                    <label for="newJobName">Anzeigename</label>
+                    <label for="newJobName">{{call $.T "modals.job_name"}}</label>
                     <input type="text" id="newJobName" name="name" placeholder="SAP Kunden Synchronisation" required>
                 </div>
             </div>
             <div class="form-group">
-                <label for="newServerID">Ziel Execution Server</label>
+                <label for="newServerID">{{call $.T "modals.server"}}</label>
                 <select id="newServerID" name="server_id" required>
                     {{range .Servers}}
                         <option value="{{.ID}}">{{.Name}} ({{.Host}})</option>
@@ -433,21 +479,21 @@
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="newGroupId">Maven GroupId</label>
+                    <label for="newGroupId">{{call $.T "modals.group_id"}}</label>
                     <input type="text" id="newGroupId" name="group_id" placeholder="de.firma.talend" required>
                 </div>
                 <div class="form-group">
-                    <label for="newArtifactId">Maven ArtifactId</label>
+                    <label for="newArtifactId">{{call $.T "modals.artifact_id"}}</label>
                     <input type="text" id="newArtifactId" name="artifact_id" placeholder="sync_sap_kunden" required>
                 </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
-                    <label for="newActiveVersion">Initiale Version</label>
+                    <label for="newActiveVersion">{{call $.T "modals.initial_version"}}</label>
                     <input type="text" id="newActiveVersion" name="active_version" placeholder="1.0.0" required>
                 </div>
                 <div class="form-group">
-                    <label for="newNexusRepo">Nexus Repository</label>
+                    <label for="newNexusRepo">{{call $.T "modals.nexus_repo"}}</label>
                     <select id="newNexusRepo" name="nexus_repo" required>
                         {{range .NexusRepos}}
                             <option value="{{.ID}}">{{.Label}} ({{.ID}})</option>
@@ -455,17 +501,39 @@
                     </select>
                 </div>
             </div>
+            <div class="form-group">
+                <label for="newEnvFile">{{call $.T "modals.env_file"}}</label>
+                <input type="text" id="newEnvFile" name="env_file" placeholder="/opt/talend/jobs/.env">
+            </div>
             <div style="display: flex; gap: 16px; align-items: center; margin-top: 8px;">
                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; text-transform: none; font-weight: normal;">
                     <input type="checkbox" name="allow_concurrent" value="1">
-                    Parallele Läufe erlauben
+                    {{call $.T "modals.allow_concurrent"}}
                 </label>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('newJobModal').style.display='none'">Abbrechen</button>
-                <button type="submit" class="btn btn-primary">Job speichern</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('newJobModal').style.display='none'">{{call $.T "actions.cancel"}}</button>
+                <button type="submit" class="btn btn-primary">{{call $.T "actions.save"}}</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODAL: JOB LÖSCHEN (CONFIRMATION & OPTIONAL UNDEPLOY)                    -->
+<!-- ========================================================================= -->
+<div id="deleteJobModal" class="modal-overlay" style="display: none; z-index: 2100;">
+    <div class="modal" style="max-width: 520px;">
+        <h3 style="margin-bottom: 14px; font-size: 17px; color: #fff; display: flex; align-items: center; gap: 8px;">
+            <svg class="icon icon-md" style="color: var(--danger);"><use href="#icon-trash"></use></svg>
+            <span id="deleteJobModalTitle">{{call $.T "modals.delete_confirm" ""}}</span>
+        </h3>
+        <p id="deleteJobModalDesc" style="color: #e4e4e7; font-size: 13px; line-height: 1.5; margin-bottom: 20px;"></p>
+        <div id="deleteJobModalActions" style="display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary" onclick="closeDeleteJobModal()">{{call $.T "actions.cancel"}}</button>
+            <button type="button" id="deleteJobKeepBtn" class="btn btn-secondary" onclick="confirmDeleteJob(false)">{{call $.T "modals.delete_btn_keep_server"}}</button>
+            <button type="button" id="deleteJobUndeployBtn" class="btn btn-danger" onclick="confirmDeleteJob(true)">{{call $.T "modals.delete_btn_with_undeploy"}}</button>
+        </div>
     </div>
 </div>
 
@@ -473,24 +541,31 @@
 <!-- MODAL: NEXUS ARTIFACT PICKER (TREE VIEW)                                 -->
 <!-- ========================================================================= -->
 <div id="nexusPickerModal" class="modal-overlay" style="display: none; z-index: 2200;">
-    <div class="modal" style="max-width: 700px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
+    <div class="modal" style="max-width: 720px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <h3 style="font-size: 17px; margin: 0; color: #fff;">Nexus Artefakt auswählen</h3>
+            <h3 style="font-size: 17px; margin: 0; color: #fff;">{{call $.T "nexus.picker_title"}}</h3>
             <button type="button" class="sidepanel-close" onclick="closeNexusPicker()">
                 <svg class="icon icon-md"><use href="#icon-x"></use></svg>
             </button>
         </div>
         <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 12px;">
-            Wählen Sie ein Artefakt aus der Baumstruktur, um GroupId, ArtifactId und Version automatisch zu übernehmen.
+            {{call $.T "nexus.picker_desc"}}
         </p>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
             <select id="pickerRepoSelect" onchange="fetchNexusTree()">
                 {{range .NexusRepos}}
                     <option value="{{.ID}}">{{.Label}} ({{.ID}})</option>
                 {{end}}
             </select>
-            <input type="text" id="pickerSearchInput" placeholder="Filter nach Gruppe / Name / Version..." oninput="debouncedFetchNexusTree()">
+            <input type="text" id="pickerGroupInput" placeholder="{{call $.T "nexus.group_filter"}}" oninput="debouncedFetchNexusTree()">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 12px;">
+            <input type="text" id="pickerArtifactInput" placeholder="{{call $.T "nexus.search_filter"}}" oninput="debouncedFetchNexusTree()">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="fetchNexusTree()">
+                <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
+                {{call $.T "nexus.search_btn"}}
+            </button>
         </div>
 
         <div id="nexusTreeContainer" class="nexus-tree" style="flex: 1; max-height: 400px; min-height: 180px;">
@@ -501,10 +576,12 @@
             <div style="font-size: 11px; color: var(--text-muted);">
                 Tipp: Einstellungen prüfen unter <a href="/settings/system" style="color: var(--primary);" target="_blank">System &amp; Tokens</a>
             </div>
-            <button type="button" class="btn btn-secondary" onclick="closeNexusPicker()">Schließen</button>
+            <button type="button" class="btn btn-secondary" onclick="closeNexusPicker()">{{call $.T "actions.close"}}</button>
         </div>
     </div>
 </div>
+
+
 
 <!-- ========================================================================= -->
 <!-- MODAL: START JOB                                                         -->
@@ -681,6 +758,133 @@ function saveUserPreference(key, value) {
     }).catch(e => console.error(e));
 }
 
+// Multi-Job Selection State
+const selectedJobIDs = new Set();
+let lastClickedJobID = null;
+
+function getVisibleJobRows() {
+    return Array.from(document.querySelectorAll('tr.job-row'));
+}
+
+function handleRowClick(event, jobId) {
+    // If click originated from button, link, or input inside row, don't trigger selection
+    if (event.target.closest('button, a, input, select, textarea')) {
+        return;
+    }
+
+    const rows = getVisibleJobRows();
+    const rowIds = rows.map(r => r.dataset.jobId);
+
+    if (event.shiftKey && lastClickedJobID && rowIds.includes(lastClickedJobID) && rowIds.includes(jobId)) {
+        const idx1 = rowIds.indexOf(lastClickedJobID);
+        const idx2 = rowIds.indexOf(jobId);
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+
+        // If ctrl/cmd was NOT held, clear previous selection before selecting range
+        if (!event.ctrlKey && !event.metaKey) {
+            selectedJobIDs.clear();
+        }
+
+        for (let i = start; i <= end; i++) {
+            selectedJobIDs.add(rowIds[i]);
+        }
+    } else if (event.ctrlKey || event.metaKey) {
+        if (selectedJobIDs.has(jobId)) {
+            selectedJobIDs.delete(jobId);
+        } else {
+            selectedJobIDs.add(jobId);
+        }
+        lastClickedJobID = jobId;
+    } else {
+        // Single click: select ONLY this job
+        selectedJobIDs.clear();
+        selectedJobIDs.add(jobId);
+        lastClickedJobID = jobId;
+    }
+
+    updateSelectionUI();
+}
+
+function clearSelection() {
+    selectedJobIDs.clear();
+    lastClickedJobID = null;
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    const rows = getVisibleJobRows();
+    rows.forEach(r => {
+        const jid = r.dataset.jobId;
+        if (selectedJobIDs.has(jid)) {
+            r.classList.add('selected');
+        } else {
+            r.classList.remove('selected');
+        }
+    });
+
+    const toolbar = document.getElementById('bulkToolbar');
+    const countEl = document.getElementById('bulkSelectedCount');
+    if (selectedJobIDs.size > 0) {
+        toolbar.style.display = 'flex';
+        countEl.innerText = window.t('bulk.selected', selectedJobIDs.size);
+    } else {
+        toolbar.style.display = 'none';
+    }
+}
+
+function bulkRunJobs() {
+    if (selectedJobIDs.size === 0) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/web/jobs/bulk/run';
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'job_ids';
+    inp.value = Array.from(selectedJobIDs).join(',');
+    form.appendChild(inp);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function bulkDeployJobs() {
+    if (selectedJobIDs.size === 0) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/web/jobs/bulk/deploy';
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'job_ids';
+    inp.value = Array.from(selectedJobIDs).join(',');
+    form.appendChild(inp);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function bulkUndeployJobs() {
+    if (selectedJobIDs.size === 0) return;
+    if (!confirm(window.t('bulk.confirm_undeploy', selectedJobIDs.size))) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/web/jobs/bulk/undeploy';
+    const inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'job_ids';
+    inp.value = Array.from(selectedJobIDs).join(',');
+    form.appendChild(inp);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function undeploySingleJob(id, name) {
+    if (!confirm(window.t('bulk.confirm_undeploy', 1) + ' (' + name + ')')) return;
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/web/jobs/' + id + '/undeploy';
+    document.body.appendChild(form);
+    form.submit();
+}
+
 // Sidepanel Logic
 function openSidepanel(jobId) {
     fetch('/api/v1/jobs/' + jobId)
@@ -697,12 +901,31 @@ function openSidepanel(jobId) {
             document.getElementById('spServerName').innerText = job.server_name || job.server_id;
             document.getElementById('spDefaultContext').innerText = job.default_context;
 
+            const depEl = document.getElementById('spDeployedStatus');
+            if (depEl) {
+                if (job.is_deployed) {
+                    depEl.innerHTML = '<span class="status-dot status-dot-deployed"></span> <span style="color: #34d399; font-weight: 600;">' + (job.deployed_version ? 'v' + job.deployed_version : window.t('status.deployed')) + '</span>';
+                } else {
+                    depEl.innerHTML = '<span class="status-dot status-dot-undeployed"></span> <span style="color: var(--text-muted);">' + window.t('status.not_deployed') + '</span>';
+                }
+            }
+
+            const envEl = document.getElementById('spEnvFile');
+            if (envEl) {
+                envEl.innerText = job.env_file || '.env (Standard)';
+            }
+
             document.getElementById('spRunBtn').onclick = () => openRunModal(job.id, job.name, job.active_version, job.default_context);
             document.getElementById('spDeployBtn').onclick = () => openDeployModal(job.id, job.name, job.active_version);
+            const spUndeploy = document.getElementById('spUndeployBtn');
+            if (spUndeploy) {
+                spUndeploy.onclick = () => undeploySingleJob(job.id, job.name);
+                spUndeploy.style.display = job.is_deployed ? 'inline-flex' : 'none';
+            }
             const editBtn = document.getElementById('spEditBtn');
             if (editBtn) editBtn.onclick = () => openEditModal(job);
             const deleteBtn = document.getElementById('spDeleteBtn');
-            if (deleteBtn) deleteBtn.onclick = () => deleteJob(job.id, job.name);
+            if (deleteBtn) deleteBtn.onclick = () => deleteJob(job);
 
             // Fetch executions for this job
             fetch('/api/v1/executions?job_id=' + job.id + '&limit=5')
@@ -710,8 +933,8 @@ function openSidepanel(jobId) {
                 .then(execs => {
                     const el = document.getElementById('spExecutionsList');
                     if (!execs || execs.length === 0) {
-                        el.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">Noch keine Ausführungen.</div>';
-                        document.getElementById('spLogPreview').innerText = 'Kein Log vorhanden';
+                        el.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">' + window.t('sidepanel.no_history') + '</div>';
+                        document.getElementById('spLogPreview').innerText = window.t('sidepanel.no_log');
                         document.getElementById('spLogExpandBtn').style.display = 'none';
                         currentSidepanelExecId = '';
                         return;
@@ -722,7 +945,7 @@ function openSidepanel(jobId) {
                         const badgeClass = e.status === 'success' ? 'badge-success' : (e.status === 'failed' ? 'badge-danger' : 'badge-neutral');
                         html += '<div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--surface-border-subtle); padding: 6px 10px; border-radius: var(--radius-xs);">';
                         html += '<div><span class="badge ' + badgeClass + '">' + e.status + '</span> <span style="font-size: 12px; margin-left: 6px; font-family: var(--mono);">' + e.version + '</span></div>';
-                        html += '<div style="font-size: 11px; color: var(--text-muted);">' + new Date(e.started_at).toLocaleString('de-DE') + '</div>';
+                        html += '<div style="font-size: 11px; color: var(--text-muted);">' + new Date(e.started_at).toLocaleString() + '</div>';
                         html += '<div style="display: flex; gap: 4px;">';
                         html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="loadLogIntoSidepanel(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">' + iconSvg('file-text', 'icon-sm') + ' Log</button>';
                         html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="openQuickLog(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">' + iconSvg('maximize', 'icon-sm') + '</button>';
@@ -766,7 +989,7 @@ function closeSidepanel() {
 function openEditModal(job) {
     closeSidepanel();
     document.getElementById('editJobForm').action = '/web/jobs/' + job.id + '/update';
-    document.getElementById('editJobModalTitle').innerText = 'Job bearbeiten: ' + job.name;
+    document.getElementById('editJobModalTitle').innerText = window.t('modals.edit_job_title') + ': ' + job.name;
     document.getElementById('editJobId').value = job.id;
     document.getElementById('editJobName').value = job.name;
     document.getElementById('editServerID').value = job.server_id;
@@ -777,14 +1000,55 @@ function openEditModal(job) {
     document.getElementById('editDefaultContext').value = job.default_context;
     document.getElementById('editRetentionRuns').value = job.retention_runs || 10;
     document.getElementById('editAllowConcurrent').checked = job.allow_concurrent;
+    document.getElementById('editEnvFile').value = job.env_file || '';
     document.getElementById('editJobModal').style.display = 'flex';
 }
 
-function deleteJob(id, name) {
-    if (!confirm('Möchten Sie den Job "' + name + '" wirklich löschen?')) return;
+// Delete Confirmation & Undeploy
+let pendingDeleteJob = null;
+
+function deleteJob(job) {
+    pendingDeleteJob = job;
+    closeSidepanel();
+    const modal = document.getElementById('deleteJobModal');
+    const title = document.getElementById('deleteJobModalTitle');
+    const desc = document.getElementById('deleteJobModalDesc');
+    const keepBtn = document.getElementById('deleteJobKeepBtn');
+    const undeployBtn = document.getElementById('deleteJobUndeployBtn');
+
+    title.innerText = window.t('modals.delete_confirm', job.name);
+    if (job.is_deployed) {
+        desc.innerText = window.t('modals.delete_undeploy_prompt', job.name, job.server_name || job.server_id);
+        keepBtn.style.display = 'inline-flex';
+        keepBtn.innerText = window.t('modals.delete_btn_keep_server');
+        undeployBtn.style.display = 'inline-flex';
+        undeployBtn.innerText = window.t('modals.delete_btn_with_undeploy');
+    } else {
+        desc.innerText = window.t('modals.delete_confirm', job.name);
+        keepBtn.style.display = 'none';
+        undeployBtn.style.display = 'inline-flex';
+        undeployBtn.innerText = window.t('actions.delete');
+    }
+    modal.style.display = 'flex';
+}
+
+function closeDeleteJobModal() {
+    document.getElementById('deleteJobModal').style.display = 'none';
+    pendingDeleteJob = null;
+}
+
+function confirmDeleteJob(withUndeploy) {
+    if (!pendingDeleteJob) return;
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/web/jobs/' + id + '/delete';
+    form.action = '/web/jobs/' + pendingDeleteJob.id + '/delete';
+    if (withUndeploy) {
+        const inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = 'undeploy_server';
+        inp.value = 'true';
+        form.appendChild(inp);
+    }
     document.body.appendChild(form);
     form.submit();
 }
@@ -796,7 +1060,7 @@ function openNewJobModal() {
 function openRunModal(id, name, version, defaultCtx) {
     closeSidepanel();
     document.getElementById('runJobID').value = id;
-    document.getElementById('runModalTitle').innerText = 'Job starten: ' + name;
+    document.getElementById('runModalTitle').innerText = window.t('modals.run_title') + ': ' + name;
     document.getElementById('runVersion').value = version;
     document.getElementById('runContext').value = defaultCtx;
     document.getElementById('runModal').style.display = 'flex';
@@ -805,7 +1069,7 @@ function openRunModal(id, name, version, defaultCtx) {
 function openDeployModal(id, name, version) {
     closeSidepanel();
     document.getElementById('deployJobID').value = id;
-    document.getElementById('deployModalTitle').innerText = 'Release deployen: ' + name;
+    document.getElementById('deployModalTitle').innerText = window.t('modals.deploy_title') + ': ' + name;
     document.getElementById('deployVersion').value = version;
     document.getElementById('deployModal').style.display = 'flex';
 }
@@ -822,25 +1086,35 @@ function openQuickLog(execId, jobName) {
         });
 }
 
-// Nexus Tree Browser Picker
+// Nexus Tree Browser Picker with Concurrency / Race Condition Fix
 let pickerTarget = 'new'; // 'new' or 'edit'
+let nexusAbortController = null;
+let searchSeq = 0;
+let nexusSearchTimer = null;
 
 function openNexusPicker(target) {
     pickerTarget = target || 'new';
     const groupField = (pickerTarget === 'edit') ? 'editGroupId' : 'newGroupId';
+    const artifactField = (pickerTarget === 'edit') ? 'editArtifactId' : 'newArtifactId';
     const repoField = (pickerTarget === 'edit') ? 'editNexusRepo' : 'newNexusRepo';
     const existingGroup = document.getElementById(groupField).value;
+    const existingArtifact = document.getElementById(artifactField).value;
     const existingRepo = document.getElementById(repoField).value;
 
     if (existingRepo) {
         document.getElementById('pickerRepoSelect').value = existingRepo;
     }
-    document.getElementById('pickerSearchInput').value = existingGroup;
+    document.getElementById('pickerGroupInput').value = existingGroup;
+    document.getElementById('pickerArtifactInput').value = existingArtifact;
     document.getElementById('nexusPickerModal').style.display = 'flex';
     fetchNexusTree();
 }
 
 function closeNexusPicker() {
+    if (nexusAbortController) {
+        nexusAbortController.abort();
+        nexusAbortController = null;
+    }
     document.getElementById('nexusPickerModal').style.display = 'none';
 }
 
@@ -855,7 +1129,6 @@ function escapeHtml(str) {
     }[tag] || tag));
 }
 
-let nexusSearchTimer = null;
 function debouncedFetchNexusTree() {
     if (nexusSearchTimer) clearTimeout(nexusSearchTimer);
     nexusSearchTimer = setTimeout(() => {
@@ -868,12 +1141,23 @@ function fetchNexusTree() {
         clearTimeout(nexusSearchTimer);
         nexusSearchTimer = null;
     }
-    const repo = document.getElementById('pickerRepoSelect').value;
-    const query = (document.getElementById('pickerSearchInput').value || '').trim();
-    const container = document.getElementById('nexusTreeContainer');
-    container.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">' + iconSvg('loader', 'icon-spin') + ' Lade Artefakte aus Nexus...</div>';
+    if (nexusAbortController) {
+        nexusAbortController.abort();
+    }
+    nexusAbortController = new AbortController();
+    const currentSeq = ++searchSeq;
 
-    fetch('/api/v1/nexus/search?repo=' + encodeURIComponent(repo) + '&query=' + encodeURIComponent(query))
+    const repo = document.getElementById('pickerRepoSelect').value;
+    const group = (document.getElementById('pickerGroupInput').value || '').trim();
+    const artifact = (document.getElementById('pickerArtifactInput').value || '').trim();
+    const container = document.getElementById('nexusTreeContainer');
+    container.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">' + iconSvg('loader', 'icon-spin') + ' ' + window.t('nexus.loading') + '</div>';
+
+    let url = '/api/v1/nexus/search?repo=' + encodeURIComponent(repo);
+    if (group) url += '&group=' + encodeURIComponent(group);
+    if (artifact) url += '&name=' + encodeURIComponent(artifact);
+
+    fetch(url, { signal: nexusAbortController.signal })
         .then(async r => {
             if (!r.ok) {
                 let msg = 'HTTP ' + r.status;
@@ -886,11 +1170,13 @@ function fetchNexusTree() {
             return r.json();
         })
         .then(groups => {
+            if (currentSeq !== searchSeq) return;
             if (!groups || groups.length === 0) {
-                if (query) {
-                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">Keine Artefakte für Filter <code>' + escapeHtml(query) + '</code> im Repository <code>' + escapeHtml(repo) + '</code> gefunden.</div>';
+                const filterDesc = (group || artifact) ? (group + ' ' + artifact).trim() : '';
+                if (filterDesc) {
+                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">' + window.t('nexus.no_results', '<code>' + escapeHtml(filterDesc) + '</code>', '<code>' + escapeHtml(repo) + '</code>') + '</div>';
                 } else {
-                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">Keine Artefakte im Repository <code>' + escapeHtml(repo) + '</code> gefunden.</div>';
+                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">' + window.t('nexus.no_results', '', '<code>' + escapeHtml(repo) + '</code>') + '</div>';
                 }
                 return;
             }
@@ -913,8 +1199,10 @@ function fetchNexusTree() {
             container.innerHTML = html;
         })
         .catch(err => {
+            if (err.name === 'AbortError') return;
+            if (currentSeq !== searchSeq) return;
             container.innerHTML = '<div style="color: #f87171; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-xs); font-size: 13px;">' +
-                '<div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">' + iconSvg('alert-triangle') + ' Nexus nicht erreichbar</div>' +
+                '<div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">' + iconSvg('alert-triangle') + ' ' + window.t('nexus.unreachable') + '</div>' +
                 '<div style="margin-bottom: 8px;">' + escapeHtml(err.message) + '</div>' +
                 '<div style="font-size: 11px; color: var(--text-muted);">' +
                 'Prüfen Sie Basis-URL und Anmeldedaten unter <a href="/settings/system" target="_blank" style="color: var(--primary); text-decoration: underline;">Einstellungen &gt; System</a>' +
@@ -945,5 +1233,6 @@ function selectNexusArtifact(group, artifact, version, repo) {
 
     closeNexusPicker();
 }
+
 </script>
 {{end}}
