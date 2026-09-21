@@ -132,3 +132,17 @@ curl -X POST "http://jobcon:8080/api/v1/jobs/sync_sap/run?wait=true" \
    sudo systemctl daemon-reload
    sudo systemctl enable --now jobcon
    ```
+
+---
+
+## Hinweis zur Entwicklung
+
+Dieses Projekt wurde mit Unterstützung von Künstlicher Intelligenz (KI) entwickelt.
+
+---
+
+## Lizenz
+
+Dieses Projekt ist unter der [GNU General Public License v3.0](LICENSE) lizenziert.
+
+
