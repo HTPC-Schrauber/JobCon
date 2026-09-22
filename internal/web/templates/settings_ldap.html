@@ -1,0 +1,367 @@
+{{define "content"}}
+<div class="tabs">
+    <a href="/settings/servers" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-server"></use></svg>
+        Execution Server
+    </a>
+    <a href="/settings/users" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-users"></use></svg>
+        Benutzerverwaltung
+    </a>
+    <a href="/settings/ldap" class="tab active">
+        <svg class="icon icon-sm"><use href="#icon-shield"></use></svg>
+        LDAP / Active Directory
+    </a>
+    <a href="/settings/system" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-settings"></use></svg>
+        System &amp; Tokens
+    </a>
+</div>
+
+{{if .SuccessMsg}}
+<div class="card" style="border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.1); margin-bottom: 16px; padding: 12px 16px;">
+    <div style="color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <svg class="icon icon-md" style="color: #34d399;"><use href="#icon-check"></use></svg>
+        {{.SuccessMsg}}
+    </div>
+</div>
+{{end}}
+
+{{if .ErrorMsg}}
+<div class="card" style="border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.1); margin-bottom: 16px; padding: 12px 16px;">
+    <div style="color: #f87171; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <svg class="icon icon-md" style="color: #f87171;"><use href="#icon-alert-triangle"></use></svg>
+        {{.ErrorMsg}}
+    </div>
+</div>
+{{end}}
+
+<form id="ldapConfigForm" action="/web/settings/ldap" method="POST">
+    <!-- Serververbindung & Protokoll -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="card-title">LDAP / Active Directory Server</h2>
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                    Zentrale Anbindung an Microsoft Active Directory oder OpenLDAP zur Authentifizierung von JobCon-Benutzern.
+                </p>
+            </div>
+            <div>
+                {{if .LDAPConfig.Enabled}}
+                    <span class="badge badge-success">Aktiviert</span>
+                {{else}}
+                    <span class="badge badge-neutral">Deaktiviert</span>
+                {{end}}
+            </div>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="ldapEnabled" name="ldap_enabled" value="true" {{if .LDAPConfig.Enabled}}checked{{end}}>
+                <span style="font-weight: 600; color: #fff;">LDAP / Active Directory Authentifizierung aktivieren</span>
+            </label>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="ldapProtocol">Protokoll</label>
+                <select id="ldapProtocol" name="ldap_protocol" onchange="onProtocolChange(this.value)">
+                    <option value="ldaps" {{if .LDAPConfig.UseSSL}}selected{{end}}>LDAPS (SSL/TLS - Port 636)</option>
+                    <option value="ldap" {{if not .LDAPConfig.UseSSL}}selected{{end}}>LDAP (Standard / StartTLS - Port 389)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+                <label for="ldapHost">Server-Hostname / IP</label>
+                <input type="text" id="ldapHost" name="ldap_host" value="{{.LDAPConfig.Host}}" placeholder="z. B. dc01.intern.firma.de" required>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="ldapPort">Port</label>
+                <input type="number" id="ldapPort" name="ldap_port" value="{{.LDAPConfig.Port}}" min="1" max="65535" required>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 8px;">
+            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="ldapInsecureSkipVerify" name="ldap_insecure_skip_verify" value="true" {{if .LDAPConfig.InsecureSkipVerify}}checked{{end}}>
+                <span style="color: #e4e4e7; font-size: 13px;">TLS-Zertifikatsprüfung überspringen (InsecureSkipVerify - nützlich für interne CAs oder selbstsignierte Zertifikate)</span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Anmeldeverfahren: Direct User Bind oder Service Account -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="card-title">Anmeldeverfahren (Direct User Bind &amp; Service Account)</h2>
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                    JobCon unterstützt die direkte Benutzeranmeldung (Direct User Bind) ohne separaten Bind-Benutzer.
+                </p>
+            </div>
+        </div>
+
+        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: var(--radius-sm); padding: 12px 16px; margin-bottom: 16px;">
+            <div style="font-weight: 600; color: #f59e0b; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                <svg class="icon icon-sm"><use href="#icon-zap"></use></svg>
+                Betrieb ohne Service-Account (Direct User Bind)
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.5;">
+                Wenn Sie keinen Bind-Benutzer (Service Account) konfigurieren möchten, lassen Sie <strong>Bind-DN</strong> einfach leer.
+                JobCon bindet sich direkt mit den Zugangsdaten des Benutzers an das Verzeichnis (z. B. via UPN <code>benutzer@firma.de</code>) und liest im Anschluss die konfigurierten Attribute aus.
+            </p>
+        </div>
+
+        <div class="form-group">
+            <label for="ldapUserBindTemplate">Direct User Bind Muster (Optional)</label>
+            <input type="text" id="ldapUserBindTemplate" name="ldap_user_bind_template" value="{{.LDAPConfig.UserBindTemplate}}" placeholder="z. B. %s@intern.firma.de oder uid=%s,ou=users,dc=intern,dc=firma,dc=de">
+            <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                Muster zur Bildung der Anmelde-Identität. <code>%s</code> wird durch den Loginnamen ersetzt. Wenn leer, leitet JobCon den Domain-Suffix automatisch aus der Suchbasis (DC=...) ab.
+            </p>
+        </div>
+
+        <div style="border-top: 1px solid var(--surface-border-subtle); padding-top: 16px; margin-top: 16px;">
+            <h4 style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 10px;">Optional: Fester Bind-Benutzer (Service Account)</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="ldapBindDN">Bind-DN (Service Account)</label>
+                    <input type="text" id="ldapBindDN" name="ldap_bind_dn" value="{{.LDAPConfig.BindDN}}" placeholder="CN=jobcon_svc,OU=ServiceAccounts,DC=intern,DC=firma,DC=de">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="ldapBindPassword">Bind-Passwort</label>
+                    <input type="password" id="ldapBindPassword" name="ldap_bind_password" placeholder="{{if .HasBindPassword}}●●●●●●●● (Unverändert gespeichert){{else}}Passwort des Service Accounts{{end}}">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Suchbasis & Attribut-Herkunft (Mapping) -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h2 class="card-title">Suchbasis &amp; Attribut-Herkunft (Mapping)</h2>
+                <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                    Globale Festlegung der LDAP/AD-Attribute für Loginname, Vorname, Nachname und E-Mail. Gilt für alle LDAP-Benutzer in JobCon.
+                </p>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="ldapBaseDN">Suchbasis (Base DN)</label>
+                <input type="text" id="ldapBaseDN" name="ldap_base_dn" value="{{.LDAPConfig.BaseDN}}" placeholder="OU=Mitarbeiter,DC=intern,DC=firma,DC=de" required>
+                <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                    Ausgangs-DN, unter dem nach Benutzern gesucht wird.
+                </p>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label for="ldapUserFilter">Benutzer-Suchfilter (Optional)</label>
+                <input type="text" id="ldapUserFilter" name="ldap_user_filter" value="{{.LDAPConfig.UserFilter}}" placeholder="Standard: (<Loginname-Attribut>=%s)">
+                <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                    Optionaler LDAP-Filter (z. B. <code>(&amp;(objectClass=user)(sAMAccountName=%s))</code>). <code>%s</code> wird durch den Loginnamen ersetzt.
+                </p>
+            </div>
+        </div>
+
+        <div style="border-top: 1px solid var(--surface-border-subtle); padding-top: 16px; margin-top: 16px;">
+            <h4 style="font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 12px;">Attribut-Zuordnung im Verzeichnisdienst</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="ldapAttrUser">Loginname-Attribut</label>
+                    <input type="text" id="ldapAttrUser" name="ldap_attr_username" value="{{.LDAPConfig.AttrUsername}}" placeholder="sAMAccountName" required>
+                    <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                        AD: <code>sAMAccountName</code> / OpenLDAP: <code>uid</code>
+                    </p>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="ldapAttrFirst">Vorname-Attribut</label>
+                    <input type="text" id="ldapAttrFirst" name="ldap_attr_first_name" value="{{.LDAPConfig.AttrFirstName}}" placeholder="givenName" required>
+                    <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                        Standard: <code>givenName</code>
+                    </p>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="ldapAttrLast">Nachname-Attribut</label>
+                    <input type="text" id="ldapAttrLast" name="ldap_attr_last_name" value="{{.LDAPConfig.AttrLastName}}" placeholder="sn" required>
+                    <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                        Standard: <code>sn</code>
+                    </p>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="ldapAttrMail">E-Mail-Attribut</label>
+                    <input type="text" id="ldapAttrMail" name="ldap_attr_email" value="{{.LDAPConfig.AttrEmail}}" placeholder="mail" required>
+                    <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                        Standard: <code>mail</code>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--surface-border-subtle); flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; gap: 8px;">
+                <button type="button" id="btnTestConn" class="btn btn-secondary btn-sm" onclick="testLDAPConnection()">
+                    <svg class="icon icon-sm"><use href="#icon-activity"></use></svg>
+                    Verbindung testen
+                </button>
+                <button type="button" id="btnOpenUserTestModal" class="btn btn-secondary btn-sm" onclick="openTestUserModal()">
+                    <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
+                    Benutzer-Lookup testen
+                </button>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                LDAP Einstellungen speichern
+            </button>
+        </div>
+        <div id="ldapTestResult" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 12.5px;"></div>
+    </div>
+</form>
+
+<!-- Modal: Benutzer-Lookup testen -->
+<div id="testUserModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+        <h3 style="margin-bottom: 12px; font-size: 17px; color: #fff;">LDAP / AD Benutzer-Lookup testen</h3>
+        <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 16px;">
+            Prüfen Sie, wie ein Benutzer im Active Directory aufgelöst wird und welche Attribute (Vorname, Nachname, E-Mail) bezogen werden.
+        </p>
+        <div class="form-group">
+            <label for="testLookupUser">Loginname</label>
+            <input type="text" id="testLookupUser" placeholder="z. B. m.mustermann" required>
+        </div>
+        <div class="form-group">
+            <label for="testLookupPass">Passwort (Optional für Direct User Bind Test)</label>
+            <input type="password" id="testLookupPass" placeholder="Passwort des Test-Benutzers">
+            <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+                Wenn Sie ohne Service Account arbeiten, geben Sie hier das Passwort an, um den direkten Login zu verifizieren.
+            </p>
+        </div>
+        <div id="testLookupResult" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 12px;"></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('testUserModal').style.display='none'">Schließen</button>
+            <button type="button" id="btnRunUserLookup" class="btn btn-primary" onclick="runTestUserLookup()">Abfrage starten</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function onProtocolChange(proto) {
+    const portInput = document.getElementById('ldapPort');
+    if (!portInput) return;
+    if (proto === 'ldaps') {
+        if (portInput.value === '389' || portInput.value === '') {
+            portInput.value = '636';
+        }
+    } else {
+        if (portInput.value === '636' || portInput.value === '') {
+            portInput.value = '389';
+        }
+    }
+}
+
+function testLDAPConnection() {
+    const btn = document.getElementById('btnTestConn');
+    const resultBox = document.getElementById('ldapTestResult');
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="icon icon-sm icon-spin"><use href="#icon-loader"></use></svg> Teste Verbindung...';
+    resultBox.style.display = 'none';
+
+    const formData = new FormData(document.getElementById('ldapConfigForm'));
+
+    fetch('/web/settings/ldap/test', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="icon icon-sm"><use href="#icon-activity"></use></svg> Verbindung testen';
+        resultBox.style.display = 'block';
+        if (data.ok) {
+            resultBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            resultBox.style.border = '1px solid rgba(16, 185, 129, 0.35)';
+            resultBox.style.color = '#34d399';
+            resultBox.innerHTML = '<strong>✓ Verbindung erfolgreich:</strong> ' + (data.message || 'Verbindung zum LDAP/AD Server konnte hergestellt werden.');
+        } else {
+            resultBox.style.background = 'rgba(239, 68, 68, 0.15)';
+            resultBox.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+            resultBox.style.color = '#f87171';
+            resultBox.innerHTML = '<strong>✕ Verbindung fehlgeschlagen:</strong> ' + (data.error || 'Unbekannter Fehler');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="icon icon-sm"><use href="#icon-activity"></use></svg> Verbindung testen';
+        resultBox.style.display = 'block';
+        resultBox.style.background = 'rgba(239, 68, 68, 0.15)';
+        resultBox.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+        resultBox.style.color = '#f87171';
+        resultBox.innerHTML = '<strong>✕ Netzwerkfehler:</strong> ' + err.message;
+    });
+}
+
+function openTestUserModal() {
+    document.getElementById('testLookupResult').style.display = 'none';
+    document.getElementById('testLookupUser').value = '';
+    document.getElementById('testLookupPass').value = '';
+    document.getElementById('testUserModal').style.display = 'flex';
+    document.getElementById('testLookupUser').focus();
+}
+
+function runTestUserLookup() {
+    const user = document.getElementById('testLookupUser').value.trim();
+    const pass = document.getElementById('testLookupPass').value;
+    const resultBox = document.getElementById('testLookupResult');
+    const btn = document.getElementById('btnRunUserLookup');
+
+    if (!user) {
+        alert('Bitte geben Sie einen Loginnamen ein.');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="icon icon-sm icon-spin"><use href="#icon-loader"></use></svg> Suche...';
+    resultBox.style.display = 'none';
+
+    const formData = new FormData(document.getElementById('ldapConfigForm'));
+    formData.append('test_username', user);
+    formData.append('test_password', pass);
+
+    fetch('/web/settings/ldap/test-user', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = 'Abfrage starten';
+        resultBox.style.display = 'block';
+
+        if (data.ok && data.user) {
+            resultBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            resultBox.style.border = '1px solid rgba(16, 185, 129, 0.35)';
+            resultBox.style.color = '#e6edf3';
+            resultBox.innerHTML = `
+                <div style="color: #34d399; font-weight: 600; margin-bottom: 6px;">✓ Benutzer erfolgreich gefunden!</div>
+                <div><strong>DN:</strong> <code>${data.user.dn || '-'}</code></div>
+                <div><strong>Login:</strong> <code>${data.user.username || '-'}</code></div>
+                <div><strong>Anzeigename:</strong> ${data.user.display_name || '-'}</div>
+                <div><strong>Vorname:</strong> ${data.user.first_name || '-'}</div>
+                <div><strong>Nachname:</strong> ${data.user.last_name || '-'}</div>
+                <div><strong>E-Mail:</strong> ${data.user.email || '-'}</div>
+            `;
+        } else {
+            resultBox.style.background = 'rgba(239, 68, 68, 0.15)';
+            resultBox.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+            resultBox.style.color = '#f87171';
+            resultBox.innerHTML = '<strong>✕ Fehler beim Lookup:</strong> ' + (data.error || 'Benutzer konnte nicht aufgelöst werden.');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = 'Abfrage starten';
+        resultBox.style.display = 'block';
+        resultBox.style.background = 'rgba(239, 68, 68, 0.15)';
+        resultBox.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+        resultBox.style.color = '#f87171';
+        resultBox.innerHTML = '<strong>✕ Netzwerkfehler:</strong> ' + err.message;
+    });
+}
+</script>
+{{end}}

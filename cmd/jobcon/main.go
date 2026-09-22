@@ -80,9 +80,9 @@ func main() {
 	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
 
 	// 5. Auth & Middleware
-	localAuth := auth.NewLocalAuthenticator(database)
+	multiAuth := auth.NewMultiAuthenticator(database, cfg)
 	sessions := auth.NewSessionManager(24 * time.Hour)
-	authMW := auth.NewMiddleware(localAuth, database, sessions)
+	authMW := auth.NewMiddleware(multiAuth, database, sessions)
 
 	// 6. Nexus Syncer
 	nexusSyncer := nexus.NewSyncer(database, cfg, func() *nexus.Client {
@@ -102,7 +102,7 @@ func main() {
 	apiHandler := api.NewAPI(database, logStore, execManager, sshRunner, authMW, cfg, nexusSyncer)
 	apiHandler.RegisterRoutes(mux)
 
-	webHandler, err := web.NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg, nexusSyncer)
+	webHandler, err := web.NewWebHandler(database, execManager, logStore, authMW, multiAuth, sessions, cfg, nexusSyncer)
 	if err != nil {
 		log.Fatalf("Failed to initialize web UI: %v", err)
 	}

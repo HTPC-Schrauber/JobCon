@@ -345,3 +345,71 @@ func TestAPIDeployConflictAndForce(t *testing.T) {
 		t.Fatalf("expected 202 Accepted for j2 deploy with force=true, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAPIUsersManagement(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	// Create initial local admin
+	admin := &db.User{
+		ID:           "admin_api_1",
+		Username:     "admin_api",
+		Role:         "admin",
+		AuthSource:   "local",
+		IsActive:     true,
+		PasswordHash: "fakehash",
+		DisplayName:  "API Admin",
+	}
+	_ = database.CreateUser(admin)
+
+	// 1. Create LDAP user via API
+	ldapUserReq := `{"username":"ad_user1","auth_source":"ldap","role":"operator","display_name":"AD User 1","email":"ad1@firma.de"}`
+	req := httptest.NewRequest("POST", "/api/v1/users", bytes.NewBufferString(ldapUserReq))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for LDAP user, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var createdLDAP db.User
+	_ = json.NewDecoder(rec.Body).Decode(&createdLDAP)
+	if createdLDAP.AuthSource != "ldap" || createdLDAP.Role != "operator" {
+		t.Errorf("unexpected created user: %+v", createdLDAP)
+	}
+
+	// 2. Attempt to delete last local admin via API -> should return 400 Bad Request
+	req = httptest.NewRequest("DELETE", "/api/v1/users/admin_api_1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request when deleting last local admin, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Attempt to demote last local admin via API -> should return 400 Bad Request
+	demoteReq := `{"role":"viewer","is_active":true}`
+	req = httptest.NewRequest("PUT", "/api/v1/users/admin_api_1", bytes.NewBufferString(demoteReq))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request when demoting last local admin, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Delete LDAP user via API -> should succeed (200 OK)
+	req = httptest.NewRequest("DELETE", "/api/v1/users/"+createdLDAP.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK when deleting LDAP user, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+

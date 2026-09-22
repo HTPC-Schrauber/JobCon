@@ -1076,6 +1076,182 @@ func TestHighDensityUIAndNexusSyncAndConcurrencySettings(t *testing.T) {
 	}
 }
 
+func TestWebLDAPSettingsAndUserManagement(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test_ldap_web.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, err := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	if err != nil {
+		t.Fatalf("failed to init log storage: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	multiAuth := auth.NewMultiAuthenticator(database, cfg)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(multiAuth, database, sessions)
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, multiAuth, sessions, cfg)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	// Create initial local admin
+	adminUser := &db.User{
+		ID:           "admin_1",
+		Username:     "admin",
+		Role:         "admin",
+		AuthSource:   "local",
+		IsActive:     true,
+		DisplayName:  "Administrator",
+		PasswordHash: "fakehash",
+	}
+	_ = database.CreateUser(adminUser)
+	sessionToken := sessions.CreateSession(adminUser)
+
+	// 1. GET /settings/ldap
+	req := httptest.NewRequest("GET", "/settings/ldap", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected GET /settings/ldap to return 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "LDAP / Active Directory") {
+		t.Errorf("expected page to contain 'LDAP / Active Directory'")
+	}
+	if !strings.Contains(body, "sAMAccountName") {
+		t.Errorf("expected page to contain attribute 'sAMAccountName'")
+	}
+
+	// 2. POST /web/settings/ldap (Save settings)
+	ldapForm := url.Values{
+		"ldap_enabled":               {"true"},
+		"ldap_protocol":              {"ldaps"},
+		"ldap_host":                  {"ad.example.local"},
+		"ldap_port":                  {"636"},
+		"ldap_insecure_skip_verify":  {"true"},
+		"ldap_user_bind_template":    {"%s@example.local"},
+		"ldap_base_dn":               {"OU=Users,DC=example,DC=local"},
+		"ldap_attr_username":         {"sAMAccountName"},
+		"ldap_attr_first_name":       {"givenName"},
+		"ldap_attr_last_name":        {"sn"},
+		"ldap_attr_email":            {"mail"},
+	}
+	req = httptest.NewRequest("POST", "/web/settings/ldap", strings.NewReader(ldapForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected POST /web/settings/ldap to redirect, got %d", rec.Code)
+	}
+
+	// Verify saved settings in DB
+	savedHost, _ := database.GetSetting("ldap_host", "")
+	if savedHost != "ad.example.local" {
+		t.Errorf("expected saved ldap_host='ad.example.local', got %q", savedHost)
+	}
+	savedPort, _ := database.GetSetting("ldap_port", "")
+	if savedPort != "636" {
+		t.Errorf("expected saved ldap_port='636', got %q", savedPort)
+	}
+	savedSSL, _ := database.GetSetting("ldap_use_ssl", "")
+	if savedSSL != "true" {
+		t.Errorf("expected saved ldap_use_ssl='true', got %q", savedSSL)
+	}
+
+	// 3. POST /web/users/create (Create an LDAP user)
+	createLDAPForm := url.Values{
+		"auth_source":  {"ldap"},
+		"username":     {"johndoe"},
+		"display_name": {"John Doe"},
+		"email":        {"johndoe@example.local"},
+		"role":         {"operator"},
+	}
+	req = httptest.NewRequest("POST", "/web/users/create", strings.NewReader(createLDAPForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected POST /web/users/create to redirect, got %d", rec.Code)
+	}
+
+	createdLDAPUser, err := database.GetUserByUsername("johndoe")
+	if err != nil {
+		t.Fatalf("failed to retrieve created LDAP user: %v", err)
+	}
+	if createdLDAPUser.AuthSource != "ldap" {
+		t.Errorf("expected auth_source 'ldap', got %s", createdLDAPUser.AuthSource)
+	}
+	if createdLDAPUser.Role != "operator" {
+		t.Errorf("expected role 'operator', got %s", createdLDAPUser.Role)
+	}
+
+	// 4. Protection test: try to delete the only local admin
+	req = httptest.NewRequest("POST", "/web/users/admin_1/delete", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect, got %d", rec.Code)
+	}
+	location := rec.Header().Get("Location")
+	if !strings.Contains(location, "error=") {
+		t.Errorf("expected redirect location to contain error, got %s", location)
+	}
+
+	// Verify admin_1 is still in DB
+	checkAdmin, err := database.GetUserByID("admin_1")
+	if err != nil || checkAdmin == nil {
+		t.Fatalf("last local admin was erroneously deleted!")
+	}
+
+	// 5. Protection test: try to demote or deactivate the only local admin
+	demoteForm := url.Values{
+		"display_name": {"Administrator"},
+		"email":        {"admin@local"},
+		"role":         {"viewer"},
+		"is_active":    {"true"},
+	}
+	req = httptest.NewRequest("POST", "/web/users/admin_1/update", strings.NewReader(demoteForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	location = rec.Header().Get("Location")
+	if !strings.Contains(location, "error=") {
+		t.Errorf("expected demote redirect location to contain error, got %s", location)
+	}
+
+	// 6. Delete LDAP user (should succeed without error)
+	req = httptest.NewRequest("POST", "/web/users/"+createdLDAPUser.ID+"/delete", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	location = rec.Header().Get("Location")
+	if !strings.Contains(location, "success=") {
+		t.Errorf("expected successful deletion of LDAP user, got %s", location)
+	}
+}
+
+
 
 
 

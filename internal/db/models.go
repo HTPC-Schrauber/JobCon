@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("record not found")
-	ErrServerInUse = errors.New("server is still in use by configured jobs")
+	ErrNotFound            = errors.New("record not found")
+	ErrServerInUse         = errors.New("server is still in use by configured jobs")
+	ErrLastAdminProtection = errors.New("der letzte aktive lokale Administrator darf nicht gelöscht, deaktiviert oder herabgestuft werden")
 )
 
 type Server struct {
@@ -319,6 +320,12 @@ func (db *DB) CountUsers() (int, error) {
 	return count, err
 }
 
+func (db *DB) CountActiveLocalAdmins() (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND auth_source = 'local' AND is_active = 1`).Scan(&count)
+	return count, err
+}
+
 func (db *DB) CreateUser(u *User) error {
 	u.CreatedAt = time.Now()
 	query := `INSERT INTO users (id, username, password_hash, display_name, email, role, auth_source, is_active, created_at)
@@ -328,7 +335,7 @@ func (db *DB) CreateUser(u *User) error {
 }
 
 func (db *DB) GetUserByUsername(username string) (*User, error) {
-	row := db.QueryRow(`SELECT id, username, password_hash, display_name, email, role, auth_source, is_active, created_at, last_login_at FROM users WHERE username = ?`, username)
+	row := db.QueryRow(`SELECT id, username, password_hash, display_name, email, role, auth_source, is_active, created_at, last_login_at FROM users WHERE LOWER(username) = LOWER(?)`, username)
 	var u User
 	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Email, &u.Role, &u.AuthSource, &u.IsActive, &u.CreatedAt, &u.LastLoginAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -366,8 +373,31 @@ func (db *DB) ListUsers() ([]User, error) {
 }
 
 func (db *DB) UpdateUser(u *User) error {
-	res, err := db.Exec(`UPDATE users SET display_name = ?, email = ?, role = ?, is_active = ? WHERE id = ?`,
-		u.DisplayName, u.Email, u.Role, u.IsActive, u.ID)
+	existing, err := db.GetUserByID(u.ID)
+	if err != nil {
+		return err
+	}
+
+	authSource := u.AuthSource
+	if authSource == "" {
+		authSource = existing.AuthSource
+	}
+
+	// Last local admin protection: cannot demote, deactivate, or change auth_source of last active local admin
+	if existing.Role == "admin" && existing.AuthSource == "local" && existing.IsActive {
+		if u.Role != "admin" || !u.IsActive || authSource != "local" {
+			count, err := db.CountActiveLocalAdmins()
+			if err != nil {
+				return err
+			}
+			if count <= 1 {
+				return ErrLastAdminProtection
+			}
+		}
+	}
+
+	res, err := db.Exec(`UPDATE users SET display_name = ?, email = ?, role = ?, auth_source = ?, is_active = ? WHERE id = ?`,
+		u.DisplayName, u.Email, u.Role, authSource, u.IsActive, u.ID)
 	if err != nil {
 		return err
 	}
@@ -397,6 +427,22 @@ func (db *DB) UpdateUserLastLogin(id string) error {
 }
 
 func (db *DB) DeleteUser(id string) error {
+	u, err := db.GetUserByID(id)
+	if err != nil {
+		return err
+	}
+
+	// Last local admin protection: cannot delete last active local admin
+	if u.Role == "admin" && u.AuthSource == "local" && u.IsActive {
+		count, err := db.CountActiveLocalAdmins()
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdminProtection
+		}
+	}
+
 	res, err := db.Exec(`DELETE FROM users WHERE id = ?`, id)
 	if err != nil {
 		return err

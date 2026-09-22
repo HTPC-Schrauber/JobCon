@@ -8,21 +8,43 @@
         <svg class="icon icon-sm"><use href="#icon-users"></use></svg>
         Benutzerverwaltung
     </a>
+    <a href="/settings/ldap" class="tab">
+        <svg class="icon icon-sm"><use href="#icon-shield"></use></svg>
+        LDAP / Active Directory
+    </a>
     <a href="/settings/system" class="tab">
         <svg class="icon icon-sm"><use href="#icon-settings"></use></svg>
         System &amp; Tokens
     </a>
 </div>
 
+{{if .SuccessMsg}}
+<div class="card" style="border-color: rgba(16, 185, 129, 0.35); background: rgba(16, 185, 129, 0.1); margin-bottom: 16px; padding: 12px 16px;">
+    <div style="color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <svg class="icon icon-md" style="color: #34d399;"><use href="#icon-check"></use></svg>
+        {{.SuccessMsg}}
+    </div>
+</div>
+{{end}}
+
+{{if .ErrorMsg}}
+<div class="card" style="border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.1); margin-bottom: 16px; padding: 12px 16px;">
+    <div style="color: #f87171; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <svg class="icon icon-md" style="color: #f87171;"><use href="#icon-alert-triangle"></use></svg>
+        {{.ErrorMsg}}
+    </div>
+</div>
+{{end}}
+
 <div class="card">
     <div class="card-header">
         <div>
             <h2 class="card-title">Benutzerverwaltung</h2>
             <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
-                Lokale Benutzerkonten mit Rollen (Admin, Operator, Viewer) und Passwort-Verwaltung via bcrypt.
+                Verwaltung von lokalen Benutzern und LDAP/Active Directory-Konten mit Rollen (Admin, Operator, Viewer).
             </p>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="document.getElementById('addUserModal').style.display='flex'">
+        <button class="btn btn-primary btn-sm" onclick="openAddUserModal()">
             <svg class="icon icon-sm"><use href="#icon-plus"></use></svg>
             Benutzer anlegen
         </button>
@@ -42,9 +64,19 @@
                 </tr>
             </thead>
             <tbody>
+                {{$activeLocalAdmins := .ActiveLocalAdmins}}
                 {{range .Users}}
+                {{$isThisLastAdmin := and (eq .Role "admin") (eq .AuthSource "local") .IsActive (le $activeLocalAdmins 1)}}
                 <tr>
-                    <td style="font-weight: 600; font-family: var(--mono); color: #fff;">{{.Username}}</td>
+                    <td style="font-weight: 600; font-family: var(--mono); color: #fff;">
+                        {{.Username}}
+                        {{if $isThisLastAdmin}}
+                            <span class="badge badge-warning" style="margin-left: 6px; font-size: 10px; padding: 2px 6px;" title="Letzter aktiver lokaler Administrator (geschützt)">
+                                <svg class="icon icon-sm" style="width: 10px; height: 10px;"><use href="#icon-shield"></use></svg>
+                                Haupt-Admin
+                            </span>
+                        {{end}}
+                    </td>
                     <td>{{.DisplayName}}</td>
                     <td>
                         {{if eq .Role "admin"}}
@@ -55,7 +87,13 @@
                             <span class="badge badge-neutral">Viewer</span>
                         {{end}}
                     </td>
-                    <td><span class="badge badge-neutral">{{.AuthSource}}</span></td>
+                    <td>
+                        {{if eq .AuthSource "ldap"}}
+                            <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">LDAP/AD</span>
+                        {{else}}
+                            <span class="badge badge-neutral">Lokal</span>
+                        {{end}}
+                    </td>
                     <td>
                         {{if .IsActive}}
                             <span class="badge badge-success">Aktiv</span>
@@ -66,11 +104,30 @@
                     <td style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);">
                         {{.CreatedAt.Format "02.01.2006"}}
                     </td>
-                    <td style="text-align: right;">
-                        <button class="btn btn-secondary btn-sm" onclick="openPasswordModal('{{.ID}}', '{{.Username}}')">
-                            <svg class="icon icon-sm"><use href="#icon-key"></use></svg>
-                            Passwort ändern
+                    <td style="text-align: right; white-space: nowrap;">
+                        <button class="btn btn-secondary btn-sm" onclick="openEditModal('{{.ID}}', '{{.Username}}', '{{.DisplayName}}', '{{.Email}}', '{{.Role}}', {{.IsActive}}, {{$isThisLastAdmin}})" title="Benutzer bearbeiten">
+                            <svg class="icon icon-sm"><use href="#icon-edit"></use></svg>
+                            Bearbeiten
                         </button>
+
+                        {{if eq .AuthSource "local"}}
+                            <button class="btn btn-secondary btn-sm" onclick="openPasswordModal('{{.ID}}', '{{.Username}}')" title="Passwort ändern">
+                                <svg class="icon icon-sm"><use href="#icon-key"></use></svg>
+                                Passwort
+                            </button>
+                        {{end}}
+
+                        {{if $isThisLastAdmin}}
+                            <button class="btn btn-secondary btn-sm" disabled style="opacity: 0.4; cursor: not-allowed;" title="Der letzte aktive lokale Administrator kann nicht gelöscht werden">
+                                <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                            </button>
+                        {{else}}
+                            <form action="/web/users/{{.ID}}/delete" method="POST" style="display: inline;" onsubmit="return confirm('Möchten Sie den Benutzer \'{{.Username}}\' wirklich löschen?')">
+                                <button type="submit" class="btn btn-danger btn-sm" title="Benutzer löschen">
+                                    <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
+                                </button>
+                            </form>
+                        {{end}}
                     </td>
                 </tr>
                 {{end}}
@@ -85,17 +142,44 @@
         <h3 style="margin-bottom: 16px; font-size: 17px; color: #fff;">Neuen Benutzer anlegen</h3>
         <form action="/web/users/create" method="POST">
             <div class="form-group">
-                <label for="newUsername">Benutzername</label>
-                <input type="text" id="newUsername" name="username" required>
+                <label for="newAuthSource">Authentifizierungsquelle</label>
+                <select id="newAuthSource" name="auth_source" onchange="onAuthSourceChange(this.value)" required>
+                    <option value="local">Lokaler Benutzer (Passwort in JobCon verwaltet)</option>
+                    <option value="ldap">LDAP / Active Directory (Authentifizierung gegen Verzeichnisdienst)</option>
+                </select>
             </div>
+
+            <div class="form-group">
+                <label for="newUsername" id="newUsernameLabel">Benutzername / Login</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="newUsername" name="username" style="flex: 1;" placeholder="z. B. max.mustermann" required>
+                    <button type="button" id="btnLookupLDAP" class="btn btn-secondary btn-sm" style="display: none; white-space: nowrap;" onclick="lookupNewLDAPUser()">
+                        <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
+                        LDAP prüfen
+                    </button>
+                </div>
+                <p id="usernameHint" style="color: var(--text-muted); font-size: 11px; margin-top: 4px; display: none;">
+                    Entspricht dem in den LDAP-Grundeinstellungen konfigurierten Loginname-Attribut (z. B. sAMAccountName).
+                </p>
+                <div id="lookupStatus" style="display: none; margin-top: 6px; font-size: 11.5px; padding: 6px 10px; border-radius: var(--radius-sm);"></div>
+            </div>
+
             <div class="form-group">
                 <label for="newDisplayName">Anzeigename</label>
                 <input type="text" id="newDisplayName" name="display_name" placeholder="Max Mustermann" required>
+                <p id="displayNameHint" style="color: var(--text-muted); font-size: 11px; margin-top: 4px; display: none;">
+                    Wird bei LDAP-Benutzern beim ersten Login automatisch aus Vorname &amp; Nachname befüllt, falls hier leer gelassen.
+                </p>
             </div>
+
             <div class="form-group">
                 <label for="newEmail">E-Mail (optional)</label>
-                <input type="email" id="newEmail" name="email">
+                <input type="email" id="newEmail" name="email" placeholder="max.mustermann@firma.de">
+                <p id="emailHint" style="color: var(--text-muted); font-size: 11px; margin-top: 4px; display: none;">
+                    Wird bei LDAP-Benutzern bei Login automatisch aus dem Mail-Attribut bezogen.
+                </p>
             </div>
+
             <div class="form-group">
                 <label for="newRole">Rolle</label>
                 <select id="newRole" name="role" required>
@@ -104,13 +188,61 @@
                     <option value="admin">Administrator (Vollzugriff &amp; Einstellungen)</option>
                 </select>
             </div>
-            <div class="form-group">
+
+            <div class="form-group" id="newPasswordGroup">
                 <label for="newPassword">Passwort</label>
                 <input type="password" id="newPassword" name="password" required>
             </div>
+
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('addUserModal').style.display='none'">Abbrechen</button>
                 <button type="submit" class="btn btn-primary">Benutzer erstellen</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Benutzer bearbeiten -->
+<div id="editUserModal" class="modal-overlay" style="display: none;">
+    <div class="modal">
+        <h3 id="editUserModalTitle" style="margin-bottom: 16px; font-size: 17px; color: #fff;">Benutzer bearbeiten</h3>
+        <form id="editUserForm" action="" method="POST">
+            <div class="form-group">
+                <label>Benutzername</label>
+                <input type="text" id="editUsername" disabled style="opacity: 0.6; font-family: var(--mono);">
+            </div>
+            <div class="form-group">
+                <label for="editDisplayName">Anzeigename</label>
+                <input type="text" id="editDisplayName" name="display_name" required>
+            </div>
+            <div class="form-group">
+                <label for="editEmail">E-Mail</label>
+                <input type="email" id="editEmail" name="email">
+            </div>
+            <div class="form-group">
+                <label for="editRole">Rolle</label>
+                <select id="editRole" name="role" required>
+                    <option value="viewer">Viewer (Nur Lesen &amp; Logs)</option>
+                    <option value="operator">Operator (Jobs starten, deployen &amp; abbrechen)</option>
+                    <option value="admin">Administrator (Vollzugriff &amp; Einstellungen)</option>
+                </select>
+                <p id="roleProtectedHint" style="display: none; color: #f59e0b; font-size: 11px; margin-top: 4px;">
+                    ℹ Letzter aktiver lokaler Administrator: Rolle kann nicht herabgestuft werden.
+                </p>
+            </div>
+            <div class="form-group">
+                <label for="editIsActive">Status</label>
+                <select id="editIsActive" name="is_active" required>
+                    <option value="true">Aktiv</option>
+                    <option value="false">Gesperrt</option>
+                </select>
+                <p id="statusProtectedHint" style="display: none; color: #f59e0b; font-size: 11px; margin-top: 4px;">
+                    ℹ Letzter aktiver lokaler Administrator: Konto kann nicht gesperrt werden.
+                </p>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('editUserModal').style.display='none'">Abbrechen</button>
+                <button type="submit" class="btn btn-primary">Änderungen speichern</button>
             </div>
         </form>
     </div>
@@ -134,6 +266,124 @@
 </div>
 
 <script>
+function openAddUserModal() {
+    document.getElementById('newUsername').value = '';
+    document.getElementById('newDisplayName').value = '';
+    document.getElementById('newEmail').value = '';
+    document.getElementById('newPassword').value = '';
+    document.getElementById('newAuthSource').value = 'local';
+    document.getElementById('lookupStatus').style.display = 'none';
+    onAuthSourceChange('local');
+    document.getElementById('addUserModal').style.display = 'flex';
+    document.getElementById('newUsername').focus();
+}
+
+function onAuthSourceChange(val) {
+    const isLDAP = val === 'ldap';
+    const pwdGroup = document.getElementById('newPasswordGroup');
+    const pwdInput = document.getElementById('newPassword');
+    const btnLookup = document.getElementById('btnLookupLDAP');
+    const usernameHint = document.getElementById('usernameHint');
+    const displayNameHint = document.getElementById('displayNameHint');
+    const emailHint = document.getElementById('emailHint');
+    const displayNameInput = document.getElementById('newDisplayName');
+
+    if (isLDAP) {
+        pwdGroup.style.display = 'none';
+        pwdInput.required = false;
+        btnLookup.style.display = 'inline-flex';
+        usernameHint.style.display = 'block';
+        displayNameHint.style.display = 'block';
+        emailHint.style.display = 'block';
+        displayNameInput.required = false;
+        displayNameInput.placeholder = 'Optional: Automatisch aus LDAP/AD';
+    } else {
+        pwdGroup.style.display = 'block';
+        pwdInput.required = true;
+        btnLookup.style.display = 'none';
+        usernameHint.style.display = 'none';
+        displayNameHint.style.display = 'none';
+        emailHint.style.display = 'none';
+        displayNameInput.required = true;
+        displayNameInput.placeholder = 'Max Mustermann';
+    }
+}
+
+function lookupNewLDAPUser() {
+    const username = document.getElementById('newUsername').value.trim();
+    const statusBox = document.getElementById('lookupStatus');
+    const btn = document.getElementById('btnLookupLDAP');
+
+    if (!username) {
+        alert('Bitte geben Sie einen Loginnamen ein.');
+        return;
+    }
+
+    btn.disabled = true;
+    statusBox.style.display = 'block';
+    statusBox.style.background = 'rgba(255, 255, 255, 0.05)';
+    statusBox.style.color = '#e4e4e7';
+    statusBox.innerText = 'Prüfe Active Directory / LDAP...';
+
+    fetch('/web/users/ldap-lookup?username=' + encodeURIComponent(username))
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        if (data.ok && data.user) {
+            statusBox.style.background = 'rgba(16, 185, 129, 0.15)';
+            statusBox.style.color = '#34d399';
+            statusBox.innerText = '✓ Gefunden in AD: ' + (data.user.display_name || data.user.username);
+            if (data.user.display_name) {
+                document.getElementById('newDisplayName').value = data.user.display_name;
+            }
+            if (data.user.email) {
+                document.getElementById('newEmail').value = data.user.email;
+            }
+        } else {
+            statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+            statusBox.style.color = '#f87171';
+            statusBox.innerText = '✕ ' + (data.error || 'Benutzer nicht gefunden.');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+        statusBox.style.color = '#f87171';
+        statusBox.innerText = '✕ Fehler: ' + err.message;
+    });
+}
+
+function openEditModal(id, username, displayName, email, role, isActive, isLastAdmin) {
+    document.getElementById('editUserModalTitle').innerText = 'Benutzer bearbeiten: ' + username;
+    document.getElementById('editUserForm').action = '/web/users/' + id + '/update';
+    document.getElementById('editUsername').value = username;
+    document.getElementById('editDisplayName').value = displayName;
+    document.getElementById('editEmail').value = email;
+
+    const roleSelect = document.getElementById('editRole');
+    roleSelect.value = role;
+
+    const activeSelect = document.getElementById('editIsActive');
+    activeSelect.value = isActive ? 'true' : 'false';
+
+    const roleHint = document.getElementById('roleProtectedHint');
+    const statusHint = document.getElementById('statusProtectedHint');
+
+    if (isLastAdmin) {
+        roleSelect.disabled = true;
+        roleHint.style.display = 'block';
+        activeSelect.disabled = true;
+        statusHint.style.display = 'block';
+    } else {
+        roleSelect.disabled = false;
+        roleHint.style.display = 'none';
+        activeSelect.disabled = false;
+        statusHint.style.display = 'none';
+    }
+
+    document.getElementById('editUserModal').style.display = 'flex';
+}
+
 function openPasswordModal(id, username) {
     document.getElementById('pwdModalTitle').innerText = 'Passwort ändern: ' + username;
     document.getElementById('pwdForm').action = '/web/users/' + id + '/password';

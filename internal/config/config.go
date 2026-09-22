@@ -86,8 +86,13 @@ type LDAPConfig struct {
 	BindDN             string            `yaml:"bind_dn"`
 	BindPasswordEnv    string            `yaml:"bind_password_env"`
 	BindPassword       string            `yaml:"bind_password"`
+	UserBindTemplate   string            `yaml:"user_bind_template"` // e.g. "%s@domain.local" or "uid=%s,ou=users,dc=..." for direct user bind without bind user
 	BaseDN             string            `yaml:"base_dn"`
 	UserFilter         string            `yaml:"user_filter"`
+	AttrUsername       string            `yaml:"attr_username"`   // default: sAMAccountName
+	AttrFirstName      string            `yaml:"attr_first_name"` // default: givenName
+	AttrLastName       string            `yaml:"attr_last_name"`  // default: sn
+	AttrEmail          string            `yaml:"attr_email"`      // default: mail
 	RoleMappings       map[string]string `yaml:"role_mappings"`
 }
 
@@ -139,9 +144,13 @@ func DefaultConfig() *Config {
 		Auth: AuthConfig{
 			Mode: "local",
 			LDAP: LDAPConfig{
-				Port:       636,
-				UseSSL:     true,
-				UserFilter: "(&(objectClass=user)(sAMAccountName=%s))",
+				Port:          636,
+				UseSSL:        true,
+				UserFilter:    "",
+				AttrUsername:  "sAMAccountName",
+				AttrFirstName: "givenName",
+				AttrLastName:  "sn",
+				AttrEmail:     "mail",
 			},
 		},
 		Database: DatabaseConfig{
@@ -207,10 +216,43 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Nexus.Password = os.Getenv(cfg.Nexus.PasswordEnv)
 	}
 
+	if envLDAPHost := os.Getenv("JOBCON_LDAP_HOST"); envLDAPHost != "" {
+		cfg.Auth.LDAP.Host = envLDAPHost
+	}
+	if envLDAPPort := os.Getenv("JOBCON_LDAP_PORT"); envLDAPPort != "" {
+		var p int
+		if _, err := fmt.Sscanf(envLDAPPort, "%d", &p); err == nil && p > 0 {
+			cfg.Auth.LDAP.Port = p
+		}
+	}
+	if envLDAPSSL := os.Getenv("JOBCON_LDAP_USE_SSL"); envLDAPSSL != "" {
+		cfg.Auth.LDAP.UseSSL = envLDAPSSL == "true" || envLDAPSSL == "1"
+	}
+	if envLDAPBindDN := os.Getenv("JOBCON_LDAP_BIND_DN"); envLDAPBindDN != "" {
+		cfg.Auth.LDAP.BindDN = envLDAPBindDN
+	}
 	if envLDAPPass := os.Getenv("JOBCON_LDAP_PASSWORD"); envLDAPPass != "" {
 		cfg.Auth.LDAP.BindPassword = envLDAPPass
 	} else if cfg.Auth.LDAP.BindPasswordEnv != "" {
 		cfg.Auth.LDAP.BindPassword = os.Getenv(cfg.Auth.LDAP.BindPasswordEnv)
+	}
+	if envLDAPBaseDN := os.Getenv("JOBCON_LDAP_BASE_DN"); envLDAPBaseDN != "" {
+		cfg.Auth.LDAP.BaseDN = envLDAPBaseDN
+	}
+	if envLDAPTemplate := os.Getenv("JOBCON_LDAP_USER_BIND_TEMPLATE"); envLDAPTemplate != "" {
+		cfg.Auth.LDAP.UserBindTemplate = envLDAPTemplate
+	}
+	if envLDAPAttrUser := os.Getenv("JOBCON_LDAP_ATTR_USERNAME"); envLDAPAttrUser != "" {
+		cfg.Auth.LDAP.AttrUsername = envLDAPAttrUser
+	}
+	if envLDAPAttrFirst := os.Getenv("JOBCON_LDAP_ATTR_FIRSTNAME"); envLDAPAttrFirst != "" {
+		cfg.Auth.LDAP.AttrFirstName = envLDAPAttrFirst
+	}
+	if envLDAPAttrLast := os.Getenv("JOBCON_LDAP_ATTR_LASTNAME"); envLDAPAttrLast != "" {
+		cfg.Auth.LDAP.AttrLastName = envLDAPAttrLast
+	}
+	if envLDAPAttrMail := os.Getenv("JOBCON_LDAP_ATTR_EMAIL"); envLDAPAttrMail != "" {
+		cfg.Auth.LDAP.AttrEmail = envLDAPAttrMail
 	}
 
 	if envLang := os.Getenv("JOBCON_DEFAULT_LANGUAGE"); envLang != "" {

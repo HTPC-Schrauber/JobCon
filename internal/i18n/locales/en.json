@@ -161,6 +161,7 @@
   "settings": {
     "servers": "Execution Servers",
     "users": "User Management",
+    "ldap": "LDAP / Active Directory",
     "system": "System & Tokens"
   }
 }

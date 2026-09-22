@@ -453,3 +453,135 @@ func TestNexusArtifactsCacheAndCounts(t *testing.T) {
 	}
 }
 
+func TestLocalAdminProtectionAndLDAPUsers(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_admin.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Initially 0 users
+	admins, err := database.CountActiveLocalAdmins()
+	if err != nil || admins != 0 {
+		t.Fatalf("expected 0 active local admins, got %d (err: %v)", admins, err)
+	}
+
+	// Create local admin 1
+	admin1 := &User{
+		ID:           "u-admin-1",
+		Username:     "localadmin1",
+		PasswordHash: "hash1",
+		DisplayName:  "Local Admin 1",
+		Email:        "admin1@jobcon.local",
+		Role:         "admin",
+		AuthSource:   "local",
+		IsActive:     true,
+	}
+	if err := database.CreateUser(admin1); err != nil {
+		t.Fatalf("failed to create admin1: %v", err)
+	}
+
+	// Now 1 active local admin
+	admins, err = database.CountActiveLocalAdmins()
+	if err != nil || admins != 1 {
+		t.Fatalf("expected 1 active local admin, got %d", admins)
+	}
+
+	// Case-insensitive lookup
+	fetched, err := database.GetUserByUsername("LocalAdmin1")
+	if err != nil || fetched.ID != "u-admin-1" {
+		t.Fatalf("case-insensitive lookup failed: %v", err)
+	}
+
+	// Create LDAP user
+	ldapUser := &User{
+		ID:           "u-ldap-1",
+		Username:     "ldapuser1",
+		PasswordHash: "",
+		DisplayName:  "LDAP User 1",
+		Email:        "ldapuser1@firma.de",
+		Role:         "viewer",
+		AuthSource:   "ldap",
+		IsActive:     true,
+	}
+	if err := database.CreateUser(ldapUser); err != nil {
+		t.Fatalf("failed to create ldap user: %v", err)
+	}
+
+	// Active local admins count should still be 1
+	admins, _ = database.CountActiveLocalAdmins()
+	if admins != 1 {
+		t.Fatalf("expected 1 active local admin after creating ldap user, got %d", admins)
+	}
+
+	// Trying to delete admin1 must fail because of ErrLastAdminProtection
+	if err := database.DeleteUser("u-admin-1"); err != ErrLastAdminProtection {
+		t.Fatalf("expected ErrLastAdminProtection when deleting last admin, got %v", err)
+	}
+
+	// Trying to demote admin1 to viewer must fail
+	admin1.Role = "viewer"
+	if err := database.UpdateUser(admin1); err != ErrLastAdminProtection {
+		t.Fatalf("expected ErrLastAdminProtection when demoting last admin, got %v", err)
+	}
+
+	// Trying to deactivate admin1 must fail
+	admin1.Role = "admin"
+	admin1.IsActive = false
+	if err := database.UpdateUser(admin1); err != ErrLastAdminProtection {
+		t.Fatalf("expected ErrLastAdminProtection when deactivating last admin, got %v", err)
+	}
+
+	// Trying to switch admin1 to ldap must fail
+	admin1.IsActive = true
+	admin1.AuthSource = "ldap"
+	if err := database.UpdateUser(admin1); err != ErrLastAdminProtection {
+		t.Fatalf("expected ErrLastAdminProtection when switching last admin to ldap, got %v", err)
+	}
+
+	// Create local admin 2
+	admin2 := &User{
+		ID:           "u-admin-2",
+		Username:     "localadmin2",
+		PasswordHash: "hash2",
+		DisplayName:  "Local Admin 2",
+		Email:        "admin2@jobcon.local",
+		Role:         "admin",
+		AuthSource:   "local",
+		IsActive:     true,
+	}
+	if err := database.CreateUser(admin2); err != nil {
+		t.Fatalf("failed to create admin2: %v", err)
+	}
+
+	admins, _ = database.CountActiveLocalAdmins()
+	if admins != 2 {
+		t.Fatalf("expected 2 active local admins, got %d", admins)
+	}
+
+	// Now admin1 CAN be demoted or deleted because admin2 exists
+	admin1.AuthSource = "local"
+	admin1.Role = "operator"
+	if err := database.UpdateUser(admin1); err != nil {
+		t.Fatalf("failed to demote admin1 when admin2 exists: %v", err)
+	}
+
+	// Now admin2 is the last remaining local admin and must be protected
+	admins, _ = database.CountActiveLocalAdmins()
+	if admins != 1 {
+		t.Fatalf("expected 1 active local admin, got %d", admins)
+	}
+
+	if err := database.DeleteUser("u-admin-2"); err != ErrLastAdminProtection {
+		t.Fatalf("expected ErrLastAdminProtection when deleting admin2, got %v", err)
+	}
+
+	// LDAP user can be deleted without issue
+	if err := database.DeleteUser("u-ldap-1"); err != nil {
+		t.Fatalf("failed to delete ldap user: %v", err)
+	}
+}
+
+

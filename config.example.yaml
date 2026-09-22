@@ -30,16 +30,21 @@ auth:
   ldap:
     enabled: false
     host: "ad.intern.firma.de"
-    port: 636
-    use_ssl: true
+    port: 636                       # Vorbelegt: 636 für LDAPS, 389 für LDAP
+    use_ssl: true                   # true = LDAPS, false = LDAP
     insecure_skip_verify: false
-    bind_dn: "CN=jobcon_svc,OU=ServiceAccounts,DC=intern,DC=firma,DC=de"
+    # Optionaler Bind-Benutzer (falls leer, erfolgt die Anmeldung direkt als Benutzer)
+    bind_dn: ""                     # z.B. "CN=jobcon_svc,OU=ServiceAccounts,DC=intern,DC=firma,DC=de"
     bind_password_env: "JOBCON_LDAP_PASSWORD"
+    # Optionales Bind-Muster für Direct User Bind ohne Service-Account:
+    user_bind_template: "%s@intern.firma.de"  # oder "uid=%s,ou=users,dc=intern,dc=firma,dc=de"
     base_dn: "OU=Users,DC=intern,DC=firma,DC=de"
-    user_filter: "(&(objectClass=user)(sAMAccountName=%s))"
-    role_mappings:
-      admin_group: "CN=Talend_Admins,OU=Groups,DC=intern,DC=firma,DC=de"
-      operator_group: "CN=Talend_Operators,OU=Groups,DC=intern,DC=firma,DC=de"
+    user_filter: ""                 # optional, falls leer wird (<attr_username>=%s) genutzt
+    # Attribut-Herkunft (in LDAP-Grundeinstellungen konfigurierbar):
+    attr_username: "sAMAccountName" # Loginname (z. B. sAMAccountName, uid, userPrincipalName)
+    attr_first_name: "givenName"    # Vorname
+    attr_last_name: "sn"            # Nachname
+    attr_email: "mail"              # E-Mail
 
 database:
   path: "./data/jobcon.db"

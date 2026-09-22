@@ -256,11 +256,24 @@ type Authenticator interface {
 * Benutzerdaten liegen in der SQLite-Tabelle `users`.
 * Beim ersten Start von JobCon wird automatisch ein initialer `admin`-Benutzer angelegt (Initialpasswort wird sicher generiert und im Start-Log ausgegeben oder über CLI gesetzt).
 
-#### Provider 2: Active Directory / LDAP (Vorbereitet / Phase 2)
-* Konfigurierbar in `config.yaml` oder über den Einstellungsdialog.
-* Nutzt `go-ldap/ldap/v3` für TLS-gesichertes LDAP (LDAPS auf Port 636 oder StartTLS auf 389).
-* Bind & Search Mechanismus mit frei konfigurierbarem User-Filter (z. B. `(&(objectClass=user)(sAMAccountName=%s))`).
-* LDAP-Gruppen können Rollen (`admin`, `operator`, `viewer`) in JobCon zugeordnet werden.
+#### Provider 2: Active Directory / LDAP (Vollständig integriert)
+* **Gleichzeitige Koexistenz:** Lokale Konten (`bcrypt`) und Verzeichnisdienst-Konten (Active Directory / OpenLDAP) existieren parallel nebeneinander. Bei der Benutzeranlage wird die Authentifizierungsquelle (`local` oder `ldap`) festgelegt.
+* **Protokolle & Ports:** Volle Unterstützung für LDAP (Port 389) und LDAPS (Port 636, SSL/TLS). Die Portnummer wird je nach gewähltem Protokoll automatisch vorbelegt, bleibt jedoch jederzeit frei editierbar.
+* **Betrieb ohne extra Bind-User (Direct User Bind):**
+  * LDAP/AD funktioniert standardmäßig ohne separaten Service-Account.
+  * Benutzer binden sich direkt mit ihren Zugangsdaten am Verzeichnis (z. B. via UPN-Muster `%s@intern.firma.de` oder automatisch aus der Suchbasis abgeleitet).
+  * Optional kann weiterhin ein klassischer Service-Account (`bind_dn` und `bind_password`) hinterlegt werden.
+* **Konfigurierbare Attribut-Herkunft (Grundeinstellungen):**
+  * Loginname-Attribut (Default: `sAMAccountName`, alternativ `uid`, `userPrincipalName`).
+  * Vorname-Attribut (Default: `givenName`).
+  * Nachname-Attribut (Default: `sn`).
+  * E-Mail-Attribut (Default: `mail`).
+  * Automatische Befüllung/Synchronisation von Vorname + Nachname (als Anzeigename) und E-Mail bei der Anmeldung oder via Lookup.
+* **Schutz vor Aussperren (Last Local Admin Protection):**
+  * Es muss zu jedem Zeitpunkt mindestens **ein aktiver lokaler Administrator** (`role = 'admin'`, `auth_source = 'local'`, `is_active = 1`) im System verbleiben.
+  * Das Löschen, Deaktivieren, Herabstufen auf eine niedrigere Rolle oder Umstellen auf LDAP des letzten lokalen Administrators wird von der Datenbank (`ErrLastAdminProtection`), der API und der Web-UI strikt unterbunden.
+* **Verbindungs- und Benutzer-Lookup-Tests:**
+  * Direkte interaktive Tests im Einstellungsdialog (`/settings/ldap`) zur Überprüfung von Konnektivität, TLS und Attribut-Auflösung.
 
 ### 4.2 Transport-Authentifizierung
 * **HTTP BasicAuth:** Wird für alle Browser-Requests und API-Clients unterstützt (`Authorization: Basic base64(user:pass)`).
@@ -584,16 +597,19 @@ auth:
   ldap:
     enabled: false
     host: "ad.intern.firma.de"
-    port: 636
-    use_ssl: true
+    port: 636                   # Vorbelegt: 636 für LDAPS, 389 für LDAP (frei änderbar)
+    use_ssl: true               # true = LDAPS, false = LDAP
     insecure_skip_verify: false
-    bind_dn: "CN=jobcon_svc,OU=ServiceAccounts,DC=intern,DC=firma,DC=de"
+    # Optionaler Bind-Account (wenn leer, greift Direct User Bind ohne extra Service-Account):
+    bind_dn: ""
     bind_password_env: "JOBCON_LDAP_PASSWORD"
+    user_bind_template: "%s@intern.firma.de" # Direct Bind Muster (z.B. %s@domain oder uid=%s,ou=users,...)
     base_dn: "OU=Mitarbeiter,DC=intern,DC=firma,DC=de"
-    user_filter: "(&(objectClass=user)(sAMAccountName=%s))"
-    role_mappings:
-      admin_group: "CN=Talend_Admins,OU=Groups,DC=intern,DC=firma,DC=de"
-      operator_group: "CN=Talend_Operators,OU=Groups,DC=intern,DC=firma,DC=de"
+    user_filter: ""             # Optionaler Filter, Standard: (<attr_username>=%s)
+    attr_username: "sAMAccountName" # Loginname (sAMAccountName, uid, userPrincipalName)
+    attr_first_name: "givenName"    # Vorname
+    attr_last_name: "sn"            # Nachname
+    attr_email: "mail"              # E-Mail
 
 database:
   path: "/var/lib/jobcon/data/jobcon.db"

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"jobcon/internal/config"
 	"jobcon/internal/db"
 	"net/http"
 	"net/http/httptest"
@@ -106,3 +107,122 @@ func TestGenerateAPIToken(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildUserBindIdentity(t *testing.T) {
+	// Case 1: user provided full UPN
+	cfg := config.LDAPConfig{}
+	id := BuildUserBindIdentity("user@domain.com", cfg)
+	if id != "user@domain.com" {
+		t.Errorf("expected user@domain.com, got %s", id)
+	}
+
+	// Case 2: user provided DOMAIN\user
+	id = BuildUserBindIdentity(`CORP\jdoe`, cfg)
+	if id != `CORP\jdoe` {
+		t.Errorf(`expected CORP\jdoe, got %s`, id)
+	}
+
+	// Case 3: configured UserBindTemplate
+	cfg.UserBindTemplate = "%s@intern.firma.de"
+	id = BuildUserBindIdentity("m.mustermann", cfg)
+	if id != "m.mustermann@intern.firma.de" {
+		t.Errorf("expected m.mustermann@intern.firma.de, got %s", id)
+	}
+
+	// Case 4: derived from BaseDN
+	cfg.UserBindTemplate = ""
+	cfg.BaseDN = "OU=Benutzer,DC=ad,DC=firma,DC=local"
+	id = BuildUserBindIdentity("jdoe", cfg)
+	if id != "jdoe@ad.firma.local" {
+		t.Errorf("expected jdoe@ad.firma.local, got %s", id)
+	}
+}
+
+func TestGetEffectiveLDAPConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test_ldap_cfg.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+
+	baseCfg := config.LDAPConfig{
+		Enabled: false,
+		Host:    "default.host",
+		UseSSL:  true,
+	}
+
+	// Initial effective config
+	eff := GetEffectiveLDAPConfig(database, baseCfg)
+	if eff.Port != 636 {
+		t.Errorf("expected default port 636 for SSL, got %d", eff.Port)
+	}
+	if eff.AttrUsername != "sAMAccountName" || eff.AttrFirstName != "givenName" || eff.AttrLastName != "sn" || eff.AttrEmail != "mail" {
+		t.Errorf("unexpected default attributes: %+v", eff)
+	}
+
+	// Set overrides in DB
+	_ = database.SetSetting("ldap_host", "custom.ldap.server")
+	_ = database.SetSetting("ldap_port", "389")
+	_ = database.SetSetting("ldap_use_ssl", "false")
+	_ = database.SetSetting("ldap_attr_username", "uid")
+
+	eff = GetEffectiveLDAPConfig(database, baseCfg)
+	if eff.Host != "custom.ldap.server" {
+		t.Errorf("expected host custom.ldap.server, got %s", eff.Host)
+	}
+	if eff.Port != 389 {
+		t.Errorf("expected port 389, got %d", eff.Port)
+	}
+	if eff.UseSSL != false {
+		t.Errorf("expected UseSSL false")
+	}
+	if eff.AttrUsername != "uid" {
+		t.Errorf("expected AttrUsername uid, got %s", eff.AttrUsername)
+	}
+}
+
+func TestMultiAuthenticatorLocalUser(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test_multi.db"))
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer database.Close()
+
+	cfg := config.DefaultConfig()
+	multiAuth := NewMultiAuthenticator(database, cfg)
+
+	hash, _ := HashPassword("LocalPass123!")
+	localUser := &db.User{
+		ID:           "u1",
+		Username:     "alice",
+		PasswordHash: hash,
+		DisplayName:  "Alice Local",
+		Role:         "operator",
+		AuthSource:   "local",
+		IsActive:     true,
+	}
+	_ = database.CreateUser(localUser)
+
+	// Successful login
+	u, err := multiAuth.Authenticate(context.Background(), "alice", "LocalPass123!")
+	if err != nil || u.ID != "u1" {
+		t.Fatalf("expected successful local authentication, got u=%v, err=%v", u, err)
+	}
+
+	// Wrong password
+	_, err = multiAuth.Authenticate(context.Background(), "alice", "WrongPass")
+	if err != ErrInvalidCredentials {
+		t.Errorf("expected ErrInvalidCredentials, got %v", err)
+	}
+
+	// Inactive user
+	localUser.IsActive = false
+	_ = database.UpdateUser(localUser)
+	_, err = multiAuth.Authenticate(context.Background(), "alice", "LocalPass123!")
+	if err != ErrUserInactive {
+		t.Errorf("expected ErrUserInactive, got %v", err)
+	}
+}
+

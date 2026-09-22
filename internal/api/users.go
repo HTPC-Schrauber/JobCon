@@ -18,6 +18,7 @@ type CreateUserRequest struct {
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 	Role        string `json:"role"`
+	AuthSource  string `json:"auth_source"`
 }
 
 type UpdatePasswordRequest struct {
@@ -47,18 +48,38 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Username == "" || req.Password == "" {
-		a.jsonError(w, http.StatusBadRequest, "username and password are required")
-		return
-	}
-	if req.Role == "" {
-		req.Role = auth.RoleViewer
+
+	authSource := req.AuthSource
+	if authSource == "" {
+		authSource = "local"
 	}
 
-	hash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		a.jsonError(w, http.StatusInternalServerError, "failed to hash password")
+	if req.Username == "" {
+		a.jsonError(w, http.StatusBadRequest, "username is required")
 		return
+	}
+
+	var hash string
+	if authSource == "local" {
+		if req.Password == "" {
+			a.jsonError(w, http.StatusBadRequest, "password is required for local users")
+			return
+		}
+		var err error
+		hash, err = auth.HashPassword(req.Password)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, "failed to hash password")
+			return
+		}
+	} else {
+		hash = ""
+		if req.DisplayName == "" {
+			req.DisplayName = req.Username
+		}
+	}
+
+	if req.Role == "" {
+		req.Role = auth.RoleViewer
 	}
 
 	user := &db.User{
@@ -68,7 +89,7 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		DisplayName:  req.DisplayName,
 		Email:        req.Email,
 		Role:         req.Role,
-		AuthSource:   "local",
+		AuthSource:   authSource,
 		IsActive:     true,
 	}
 
@@ -92,6 +113,10 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.UpdateUser(&user); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		if errors.Is(err, db.ErrLastAdminProtection) {
+			a.jsonError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -131,6 +156,10 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if err := a.db.DeleteUser(id); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		if errors.Is(err, db.ErrLastAdminProtection) {
+			a.jsonError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
