@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"jobcon/internal/auth"
 	"jobcon/internal/db"
 	"net/http"
@@ -159,13 +158,12 @@ func (a *API) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken, err := auth.GenerateRandomPassword(32)
+	fullToken, err := auth.GenerateAPIToken(40)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
-	fullToken := fmt.Sprintf("jobcon_%s", rawToken)
 	hash := sha256.Sum256([]byte(fullToken))
 	tokenHash := hex.EncodeToString(hash[:])
 

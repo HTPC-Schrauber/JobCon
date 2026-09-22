@@ -41,8 +41,12 @@
     <p style="font-size: 13px; margin-bottom: 12px; color: #e4e4e7;">
         Kopieren Sie dieses Token jetzt. Es wird aus Sicherheitsgründen nicht erneut angezeigt:
     </p>
-    <div style="background: #0a0a0a; padding: 12px; border-radius: var(--radius-sm); font-family: var(--mono); font-size: 13px; color: #34d399; word-break: break-all; border: 1px solid rgba(16, 185, 129, 0.3);">
-        {{.NewTokenRaw}}
+    <div style="display: flex; gap: 8px; align-items: center;">
+        <div style="flex: 1; background: #0a0a0a; padding: 10px 14px; border-radius: var(--radius-sm); font-family: var(--mono); font-size: 13px; color: #34d399; word-break: break-all; border: 1px solid rgba(16, 185, 129, 0.3); user-select: all; cursor: pointer;" title="Klicken zum Kopieren" onclick="copyNewToken()"><code id="newTokenRaw" style="font-family: inherit; color: inherit; background: transparent; padding: 0;">{{.NewTokenRaw}}</code></div>
+        <button type="button" id="copyTokenBtn" class="btn btn-secondary btn-sm" onclick="copyNewToken()" style="white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
+            <svg class="icon icon-sm"><use href="#icon-copy"></use></svg>
+            <span id="copyTokenBtnText">Kopieren</span>
+        </button>
     </div>
 </div>
 {{end}}
@@ -351,6 +355,20 @@ function escapeHtml(str) {
         "'": '&#39;',
         '"': '&quot;'
     }[tag] || tag));
+}
+function copyNewToken() {
+    const el = document.getElementById('newTokenRaw');
+    if (!el) return;
+    const token = el.textContent.trim();
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(token).then(() => {
+            const btnText = document.getElementById('copyTokenBtnText');
+            if (btnText) {
+                btnText.textContent = 'Kopiert!';
+                setTimeout(() => { btnText.textContent = 'Kopieren'; }, 2000);
+            }
+        });
+    }
 }
 </script>
 {{end}}

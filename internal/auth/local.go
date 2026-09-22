@@ -73,6 +73,25 @@ func GenerateRandomPassword(length int) (string, error) {
 	return string(result), nil
 }
 
+// GenerateAPIToken creates a secure, shell-safe alphanumeric API token with the "jobcon_" prefix.
+// It uses Base62 (a-z, A-Z, 0-9) to avoid escaping and interpolation issues in Bash (!, $, ^, &),
+// Windows CMD, PowerShell, and URL query strings.
+func GenerateAPIToken(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	if length <= 0 {
+		length = 40
+	}
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		result[i] = charset[num.Int64()]
+	}
+	return fmt.Sprintf("jobcon_%s", string(result)), nil
+}
+
 // EnsureAdminUser checks if any user exists in the database. If not, it creates a default admin user.
 func EnsureAdminUser(database *db.DB, explicitPassword string) (string, error) {
 	count, err := database.CountUsers()

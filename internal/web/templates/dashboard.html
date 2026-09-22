@@ -275,7 +275,10 @@
     <div class="sidepanel-header">
         <div>
             <h3 id="spJobName" style="font-size: 17px; color: #fff; margin-bottom: 2px;">Job Details</h3>
-            <div id="spJobID" style="font-size: 12px; color: var(--text-muted); font-family: var(--mono);"></div>
+            <div style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                <span style="font-size: 11px; color: var(--text-muted); font-family: var(--mono); text-transform: uppercase;">ID:</span>
+                <span id="spJobID" style="font-size: 12px; color: #d4d4d8; font-family: var(--mono);"></span>
+            </div>
         </div>
         <button class="sidepanel-close" onclick="closeSidepanel()">
             <svg class="icon icon-md"><use href="#icon-x"></use></svg>
@@ -311,6 +314,16 @@
 
         <!-- Details List -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px;">
+            <div style="grid-column: span 2; background: rgba(255, 255, 255, 0.02); padding: 8px 12px; border-radius: var(--radius-xs); border: 1px solid var(--surface-border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.job_id"}}</div>
+                    <div id="spDetailJobID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff; font-weight: 600;"></div>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" onclick="copyJobId()" title="{{call $.T "actions.copy"}}">
+                    <svg class="icon icon-sm"><use href="#icon-copy"></use></svg>
+                    <span id="spCopyJobIdText">{{call $.T "actions.copy"}}</span>
+                </button>
+            </div>
             <div>
                 <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">{{call $.T "sidepanel.group"}}</div>
                 <div id="spGroupID" style="font-family: var(--mono); font-size: 13px; margin-top: 2px; color: #fff;"></div>
@@ -484,7 +497,7 @@
                 </div>
                 <div class="form-group">
                     <label for="newArtifactId">{{call $.T "modals.artifact_id"}}</label>
-                    <input type="text" id="newArtifactId" name="artifact_id" placeholder="sync_sap_kunden" required>
+                    <input type="text" id="newArtifactId" name="artifact_id" placeholder="sync_sap_kunden" oninput="checkNewJobArtifact()" required>
                 </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -510,6 +523,14 @@
                     <input type="checkbox" name="allow_concurrent" value="1">
                     {{call $.T "modals.allow_concurrent"}}
                 </label>
+            </div>
+            <div id="newJobArtifactWarning" style="display: none; margin-top: 14px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-xs); padding: 10px 14px; font-size: 12px; color: #fbbf24;">
+                <div style="font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                    <svg class="icon icon-sm" style="color: #f59e0b;"><use href="#icon-alert-triangle"></use></svg>
+                    <span>{{call $.T "modals.warn_duplicate_artifact"}}</span>
+                </div>
+                <div style="color: #d4d4d8; font-size: 11px; margin-bottom: 6px;">{{call $.T "modals.warn_duplicate_artifact_desc"}}</div>
+                <div id="newJobArtifactWarningList" style="font-family: var(--mono); font-size: 11px; color: #fde68a;"></div>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('newJobModal').style.display='none'">{{call $.T "actions.cancel"}}</button>
@@ -622,9 +643,17 @@
         </p>
         <form id="deployForm" action="/web/jobs/deploy" method="POST">
             <input type="hidden" id="deployJobID" name="job_id">
+            <input type="hidden" name="force" value="1">
             <div class="form-group">
                 <label for="deployVersion">Ziel-Version (z. B. 1.5.0)</label>
-                <input type="text" id="deployVersion" name="version" required>
+                <input type="text" id="deployVersion" name="version" oninput="checkDeployConflict()" required>
+            </div>
+            <div id="deployConflictWarning" style="display: none; margin-top: 14px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-xs); padding: 10px 14px; font-size: 12px; color: #fbbf24;">
+                <div style="font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                    <svg class="icon icon-sm" style="color: #f59e0b;"><use href="#icon-alert-triangle"></use></svg>
+                    <span>{{call $.T "modals.warn_deploy_other_version"}}</span>
+                </div>
+                <div id="deployConflictWarningDesc" style="color: #d4d4d8; font-size: 11px;"></div>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('deployModal').style.display='none'">Abbrechen</button>
@@ -894,6 +923,8 @@ function openSidepanel(jobId) {
             currentSidepanelJobName = job.name;
             document.getElementById('spJobName').innerText = job.name;
             document.getElementById('spJobID').innerText = job.id;
+            const detIdEl = document.getElementById('spDetailJobID');
+            if (detIdEl) detIdEl.innerText = job.id;
             document.getElementById('spGroupID').innerText = job.group_id;
             document.getElementById('spArtifactID').innerText = job.artifact_id;
             document.getElementById('spActiveVersion').innerHTML = '<span class="badge badge-success">' + job.active_version + '</span>';
@@ -1066,12 +1097,63 @@ function openRunModal(id, name, version, defaultCtx) {
     document.getElementById('runModal').style.display = 'flex';
 }
 
+function copyJobId() {
+    if (!currentJobData || !currentJobData.id) return;
+    navigator.clipboard.writeText(currentJobData.id).then(() => {
+        const btnText = document.getElementById('spCopyJobIdText');
+        if (btnText) {
+            const old = btnText.innerText;
+            btnText.innerText = 'Kopiert!';
+            setTimeout(() => { btnText.innerText = old; }, 1500);
+        }
+    });
+}
+
 function openDeployModal(id, name, version) {
     closeSidepanel();
     document.getElementById('deployJobID').value = id;
     document.getElementById('deployModalTitle').innerText = window.t('modals.deploy_title') + ': ' + name;
     document.getElementById('deployVersion').value = version;
     document.getElementById('deployModal').style.display = 'flex';
+    checkDeployConflict();
+}
+
+function checkDeployConflict() {
+    const enteredVersion = (document.getElementById('deployVersion').value || '').trim();
+    const warnBox = document.getElementById('deployConflictWarning');
+    const descEl = document.getElementById('deployConflictWarningDesc');
+    if (!warnBox || !descEl) return;
+
+    if (!currentJobData) {
+        warnBox.style.display = 'none';
+        return;
+    }
+
+    if (currentJobData.is_deployed && currentJobData.deployed_version && enteredVersion && currentJobData.deployed_version !== enteredVersion) {
+        descEl.innerText = window.t('modals.warn_deploy_other_version_desc', enteredVersion, currentJobData.deployed_version);
+        warnBox.style.display = 'block';
+        return;
+    }
+
+    // Check if another job on the same server shares this artifact and is deployed
+    fetch('/api/v1/jobs?artifact_id=' + encodeURIComponent(currentJobData.artifact_id))
+        .then(r => r.json())
+        .then(res => {
+            const jobs = (res && res.jobs) ? res.jobs : (Array.isArray(res) ? res : []);
+            let conflict = null;
+            jobs.forEach(j => {
+                if (j.id !== currentJobData.id && j.server_id === currentJobData.server_id && j.is_deployed) {
+                    conflict = j;
+                }
+            });
+            if (conflict) {
+                descEl.innerText = 'Das Artefakt ist auf diesem Server bereits durch Job \'' + conflict.name + '\' (Version v' + conflict.deployed_version + ') installiert.';
+                warnBox.style.display = 'block';
+            } else if (!(currentJobData.is_deployed && currentJobData.deployed_version && enteredVersion && currentJobData.deployed_version !== enteredVersion)) {
+                warnBox.style.display = 'none';
+            }
+        })
+        .catch(() => {});
 }
 
 function openQuickLog(execId, jobName) {
@@ -1229,9 +1311,46 @@ function selectNexusArtifact(group, artifact, version, repo) {
         if (!document.getElementById('newJobName').value) {
             document.getElementById('newJobName').value = artifact.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
+        checkNewJobArtifact();
     }
 
     closeNexusPicker();
+}
+
+let checkArtifactTimer = null;
+function checkNewJobArtifact() {
+    clearTimeout(checkArtifactTimer);
+    checkArtifactTimer = setTimeout(() => {
+        const artifactInput = document.getElementById('newArtifactId');
+        if (!artifactInput) return;
+        const artifact = (artifactInput.value || '').trim();
+        const warnBox = document.getElementById('newJobArtifactWarning');
+        const listEl = document.getElementById('newJobArtifactWarningList');
+        if (!warnBox || !listEl) return;
+        if (!artifact) {
+            warnBox.style.display = 'none';
+            return;
+        }
+        fetch('/api/v1/jobs?artifact_id=' + encodeURIComponent(artifact))
+            .then(r => r.json())
+            .then(res => {
+                const jobs = (res && res.jobs) ? res.jobs : (Array.isArray(res) ? res : []);
+                if (jobs.length > 0) {
+                    let html = '<ul style="margin: 4px 0 0 16px; padding: 0;">';
+                    jobs.forEach(j => {
+                        html += '<li><strong>' + escapeHtml(j.name) + '</strong> (ID: <code>' + escapeHtml(j.id) + '</code>, Server: ' + escapeHtml(j.server_name || j.server_id) + ', v' + escapeHtml(j.active_version) + ')</li>';
+                    });
+                    html += '</ul>';
+                    listEl.innerHTML = html;
+                    warnBox.style.display = 'block';
+                } else {
+                    warnBox.style.display = 'none';
+                }
+            })
+            .catch(() => {
+                warnBox.style.display = 'none';
+            });
+    }, 250);
 }
 
 </script>

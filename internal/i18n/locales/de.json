@@ -59,6 +59,7 @@
   },
   "sidepanel": {
     "title": "Job Details",
+    "job_id": "Job ID",
     "start": "Starten",
     "deploy": "Deployen",
     "undeploy": "Undeployen",
@@ -117,7 +118,11 @@
     "delete_confirm": "Möchten Sie den Job '%s' wirklich löschen?",
     "delete_undeploy_prompt": "Der Job '%s' ist aktuell auf dem Execution Server '%s' installiert. Soll der Job vor dem Löschen auch vom Zielserver entfernt werden?",
     "delete_btn_with_undeploy": "Vom Server entfernen & löschen",
-    "delete_btn_keep_server": "Nur aus JobCon löschen"
+    "delete_btn_keep_server": "Nur aus JobCon löschen",
+    "warn_duplicate_artifact": "Achtung: Für dieses Artefakt existiert bereits mindestens ein konfigurierter Job.",
+    "warn_duplicate_artifact_desc": "Jobs mit demselben Artefakt teilen sich auf dem Zielserver dasselbe Verzeichnis.",
+    "warn_deploy_other_version": "Achtung: Auf dem Zielserver ist bereits eine Version dieses Artefakts bereitgestellt.",
+    "warn_deploy_other_version_desc": "Durch das Deployment von Version {0} wird die aktive Version auf dem Server umgeschaltet (bisher: {1})."
   },
   "nexus": {
     "picker_title": "Nexus Artefakt auswählen",

@@ -59,6 +59,7 @@
   },
   "sidepanel": {
     "title": "Job Details",
+    "job_id": "Job ID",
     "start": "Run",
     "deploy": "Deploy",
     "undeploy": "Undeploy",
@@ -117,7 +118,11 @@
     "delete_confirm": "Are you sure you want to delete '%s'?",
     "delete_undeploy_prompt": "Job '%s' is currently deployed on execution server '%s'. Do you also want to remove it from the execution server?",
     "delete_btn_with_undeploy": "Undeploy from server & delete",
-    "delete_btn_keep_server": "Delete from JobCon only"
+    "delete_btn_keep_server": "Delete from JobCon only",
+    "warn_duplicate_artifact": "Warning: At least one job already exists for this artifact.",
+    "warn_duplicate_artifact_desc": "Jobs sharing the same artifact will share the same directory on the target execution server.",
+    "warn_deploy_other_version": "Warning: A version of this artifact is already deployed on the target server.",
+    "warn_deploy_other_version_desc": "Deploying version {0} will switch the active version on the server (currently: {1})."
   },
   "nexus": {
     "picker_title": "Select Nexus Artifact",

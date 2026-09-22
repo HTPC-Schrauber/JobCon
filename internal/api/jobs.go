@@ -11,8 +11,14 @@ import (
 	"time"
 )
 
+type CreateJobRequest struct {
+	db.Job
+	Force bool `json:"force"`
+}
+
 type DeployRequest struct {
 	Version string `json:"version"`
+	Force   bool   `json:"force"`
 }
 
 type RunRequest struct {
@@ -23,7 +29,7 @@ type RunRequest struct {
 
 func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if q.Has("page") || q.Has("page_size") || q.Has("search") || q.Has("group_id") || q.Has("sort_by") || q.Has("group_by") {
+	if q.Has("page") || q.Has("page_size") || q.Has("search") || q.Has("group_id") || q.Has("artifact_id") || q.Has("sort_by") || q.Has("group_by") {
 		var page, pageSize int
 		if p := q.Get("page"); p != "" {
 			fmt.Sscanf(p, "%d", &page)
@@ -33,14 +39,15 @@ func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		filter := db.JobFilter{
-			Search:    q.Get("search"),
-			GroupID:   q.Get("group_id"),
-			ServerID:  q.Get("server_id"),
-			SortBy:    q.Get("sort_by"),
-			SortOrder: q.Get("sort_order"),
-			GroupBy:   q.Get("group_by"),
-			Page:      page,
-			PageSize:  pageSize,
+			Search:     q.Get("search"),
+			GroupID:    q.Get("group_id"),
+			ArtifactID: q.Get("artifact_id"),
+			ServerID:   q.Get("server_id"),
+			SortBy:     q.Get("sort_by"),
+			SortOrder:  q.Get("sort_order"),
+			GroupBy:    q.Get("group_by"),
+			Page:       page,
+			PageSize:   pageSize,
 		}
 
 		res, err := a.db.ListJobsPaged(filter)
@@ -78,14 +85,28 @@ func (a *API) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
-	var job db.Job
-	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
+	var req CreateJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	job := req.Job
 	if job.ID == "" || job.Name == "" || job.ServerID == "" || job.GroupID == "" || job.ArtifactID == "" || job.ActiveVersion == "" || job.NexusRepo == "" {
 		a.jsonError(w, http.StatusBadRequest, "missing required fields (id, name, server_id, group_id, artifact_id, active_version, nexus_repo)")
 		return
+	}
+
+	isForce := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
+	if !isForce {
+		existing, err := a.db.GetJobsByArtifact(job.ArtifactID)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if len(existing) > 0 {
+			a.jsonError(w, http.StatusConflict, fmt.Sprintf("a job with artifact '%s' already exists (job ID: '%s', name: '%s'). Use force=true to proceed", job.ArtifactID, existing[0].ID, existing[0].Name))
+			return
+		}
 	}
 
 	if err := a.db.CreateJob(&job); err != nil {
@@ -167,13 +188,46 @@ func (a *API) handleDeployJob(w http.ResponseWriter, r *http.Request) {
 	var req DeployRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
+	job, err := a.db.GetJob(id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			a.jsonError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	targetVersion := req.Version
+	if targetVersion == "" {
+		targetVersion = job.ActiveVersion
+	}
+
+	isForce := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
+	if !isForce {
+		if job.IsDeployed && job.DeployedVersion != "" && job.DeployedVersion != targetVersion {
+			a.jsonError(w, http.StatusConflict, fmt.Sprintf("another version '%s' of artifact '%s' is already deployed on server. Use force=true to proceed", job.DeployedVersion, job.ArtifactID))
+			return
+		}
+
+		serverJobs, err := a.db.GetJobsByArtifactOnServer(job.ArtifactID, job.ServerID)
+		if err == nil {
+			for _, sj := range serverJobs {
+				if sj.ID != job.ID && sj.IsDeployed && sj.DeployedVersion != "" && sj.DeployedVersion != targetVersion {
+					a.jsonError(w, http.StatusConflict, fmt.Sprintf("artifact '%s' is already deployed on this server by job '%s' with version '%s'. Use force=true to proceed", job.ArtifactID, sj.Name, sj.DeployedVersion))
+					return
+				}
+			}
+		}
+	}
+
 	user := auth.UserFromContext(r.Context())
 	triggeredBy := "unknown"
 	if user != nil {
 		triggeredBy = user.Username
 	}
 
-	exec, err := a.runner.StartExecution(r.Context(), id, "deploy", req.Version, "", nil, triggeredBy)
+	exec, err := a.runner.StartExecution(r.Context(), id, "deploy", targetVersion, "", nil, triggeredBy)
 	if err != nil {
 		if errors.Is(err, runner.ErrJobAlreadyRunning) {
 			a.jsonError(w, http.StatusConflict, err.Error())
@@ -260,6 +314,7 @@ func (a *API) handleUndeployJob(w http.ResponseWriter, r *http.Request) {
 
 type BulkJobsRequest struct {
 	JobIDs []string `json:"job_ids"`
+	Force  bool     `json:"force"`
 }
 
 type BulkJobResult struct {
@@ -313,6 +368,8 @@ func (a *API) handleBulkDeployJobs(w http.ResponseWriter, r *http.Request) {
 		triggeredBy = user.Username
 	}
 
+	isForce := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
+
 	var results []BulkJobResult
 	for _, id := range req.JobIDs {
 		job, err := a.db.GetJob(id)
@@ -320,7 +377,28 @@ func (a *API) handleBulkDeployJobs(w http.ResponseWriter, r *http.Request) {
 			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
 			continue
 		}
-		exec, err := a.runner.StartExecution(r.Context(), id, "deploy", job.ActiveVersion, "", nil, triggeredBy)
+
+		targetVersion := job.ActiveVersion
+		if !isForce {
+			var conflictErr string
+			if job.IsDeployed && job.DeployedVersion != "" && job.DeployedVersion != targetVersion {
+				conflictErr = fmt.Sprintf("another version '%s' of artifact '%s' is already deployed on server. Use force=true to proceed", job.DeployedVersion, job.ArtifactID)
+			} else {
+				serverJobs, _ := a.db.GetJobsByArtifactOnServer(job.ArtifactID, job.ServerID)
+				for _, sj := range serverJobs {
+					if sj.ID != job.ID && sj.IsDeployed && sj.DeployedVersion != "" && sj.DeployedVersion != targetVersion {
+						conflictErr = fmt.Sprintf("artifact '%s' is already deployed on this server by job '%s' with version '%s'. Use force=true to proceed", job.ArtifactID, sj.Name, sj.DeployedVersion)
+						break
+					}
+				}
+			}
+			if conflictErr != "" {
+				results = append(results, BulkJobResult{JobID: id, Success: false, Error: conflictErr})
+				continue
+			}
+		}
+
+		exec, err := a.runner.StartExecution(r.Context(), id, "deploy", targetVersion, "", nil, triggeredBy)
 		if err != nil {
 			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
 		} else {

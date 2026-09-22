@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,5 +82,27 @@ func TestLocalAuthAndAdminInitialization(t *testing.T) {
 	}
 	if !handlerCalled {
 		t.Errorf("handler was not called")
+	}
+}
+
+func TestGenerateAPIToken(t *testing.T) {
+	token, err := GenerateAPIToken(40)
+	if err != nil {
+		t.Fatalf("unexpected error generating token: %v", err)
+	}
+
+	if !strings.HasPrefix(token, "jobcon_") {
+		t.Fatalf("expected token to start with 'jobcon_', got %s", token)
+	}
+
+	secret := strings.TrimPrefix(token, "jobcon_")
+	if len(secret) != 40 {
+		t.Fatalf("expected secret length 40, got %d (%s)", len(secret), secret)
+	}
+
+	for _, c := range secret {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			t.Fatalf("token secret contains non-alphanumeric character: %c", c)
+		}
 	}
 }

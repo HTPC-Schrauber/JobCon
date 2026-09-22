@@ -323,3 +323,49 @@ func TestServerDeletionAndReassignment(t *testing.T) {
 	}
 }
 
+func TestGetJobsByArtifact(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	_ = database.CreateServer(&Server{ID: "srv-1", Name: "Server 1", Host: "10.0.0.1", SSHKeyPath: "/tmp/key"})
+	_ = database.CreateServer(&Server{ID: "srv-2", Name: "Server 2", Host: "10.0.0.2", SSHKeyPath: "/tmp/key"})
+
+	j1 := &Job{ID: "job-1", Name: "Job 1", ServerID: "srv-1", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "1.0", NexusRepo: "r"}
+	j2 := &Job{ID: "job-2", Name: "Job 2", ServerID: "srv-1", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "2.0", NexusRepo: "r"}
+	j3 := &Job{ID: "job-3", Name: "Job 3", ServerID: "srv-2", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "1.0", NexusRepo: "r"}
+	j4 := &Job{ID: "job-4", Name: "Job 4", ServerID: "srv-2", GroupID: "grp", ArtifactID: "art-y", ActiveVersion: "1.0", NexusRepo: "r"}
+
+	_ = database.CreateJob(j1)
+	_ = database.CreateJob(j2)
+	_ = database.CreateJob(j3)
+	_ = database.CreateJob(j4)
+
+	jobsX, err := database.GetJobsByArtifact("art-x")
+	if err != nil {
+		t.Fatalf("GetJobsByArtifact failed: %v", err)
+	}
+	if len(jobsX) != 3 {
+		t.Errorf("expected 3 jobs for art-x, got %d", len(jobsX))
+	}
+
+	jobsOnSrv1, err := database.GetJobsByArtifactOnServer("art-x", "srv-1")
+	if err != nil {
+		t.Fatalf("GetJobsByArtifactOnServer failed: %v", err)
+	}
+	if len(jobsOnSrv1) != 2 {
+		t.Errorf("expected 2 jobs for art-x on srv-1, got %d", len(jobsOnSrv1))
+	}
+
+	jobsOnSrv2, err := database.GetJobsByArtifactOnServer("art-x", "srv-2")
+	if err != nil {
+		t.Fatalf("GetJobsByArtifactOnServer failed: %v", err)
+	}
+	if len(jobsOnSrv2) != 1 {
+		t.Errorf("expected 1 job for art-x on srv-2, got %d", len(jobsOnSrv2))
+	}
+}
+

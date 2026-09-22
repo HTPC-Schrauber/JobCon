@@ -73,10 +73,11 @@ type JobWithRunInfo struct {
 }
 
 type JobFilter struct {
-	Search    string `json:"search"`
-	GroupID   string `json:"group_id"`
-	ServerID  string `json:"server_id"`
-	Status    string `json:"status"`
+	Search     string `json:"search"`
+	GroupID    string `json:"group_id"`
+	ArtifactID string `json:"artifact_id"`
+	ServerID   string `json:"server_id"`
+	Status     string `json:"status"`
 	Page      int    `json:"page"`
 	PageSize  int    `json:"page_size"`
 	SortBy    string `json:"sort_by"`    // "name", "group_id", "server", "version", "last_run"
@@ -474,6 +475,60 @@ func (db *DB) ListJobs() ([]Job, error) {
 	return jobs, rows.Err()
 }
 
+func (db *DB) GetJobsByArtifact(artifactID string) ([]Job, error) {
+	rows, err := db.Query(`
+		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
+		FROM jobs j
+		LEFT JOIN servers s ON j.server_id = s.id
+		WHERE j.artifact_id = ?
+		ORDER BY j.name ASC`, artifactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var j Job
+		var allowConcurrent int
+		var isDeployed int
+		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			return nil, err
+		}
+		j.AllowConcurrent = allowConcurrent == 1
+		j.IsDeployed = isDeployed == 1
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+func (db *DB) GetJobsByArtifactOnServer(artifactID, serverID string) ([]Job, error) {
+	rows, err := db.Query(`
+		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
+		FROM jobs j
+		LEFT JOIN servers s ON j.server_id = s.id
+		WHERE j.artifact_id = ? AND j.server_id = ?
+		ORDER BY j.name ASC`, artifactID, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []Job
+	for rows.Next() {
+		var j Job
+		var allowConcurrent int
+		var isDeployed int
+		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
+			return nil, err
+		}
+		j.AllowConcurrent = allowConcurrent == 1
+		j.IsDeployed = isDeployed == 1
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 func (db *DB) UpdateJob(j *Job) error {
 	j.UpdatedAt = time.Now()
 	allowConcurrent := 0
@@ -825,6 +880,11 @@ func (db *DB) ListJobsPaged(filter JobFilter) (*JobPageResult, error) {
 	if strings.TrimSpace(filter.GroupID) != "" {
 		whereClauses = append(whereClauses, "j.group_id = ?")
 		args = append(args, strings.TrimSpace(filter.GroupID))
+	}
+
+	if strings.TrimSpace(filter.ArtifactID) != "" {
+		whereClauses = append(whereClauses, "j.artifact_id = ?")
+		args = append(args, strings.TrimSpace(filter.ArtifactID))
 	}
 
 	if strings.TrimSpace(filter.ServerID) != "" {

@@ -92,6 +92,29 @@ func TestAPIHealthAndJobs(t *testing.T) {
 		t.Fatalf("expected 201 Created for POST /jobs, got %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// 2a. Duplicate artifact creation without force -> 409 Conflict
+	dupBody := `{"id":"sync_sap_2","name":"SAP Customer Sync 2","server_id":"srv-01","group_id":"de.firma.talend","artifact_id":"sync_sap","active_version":"1.1.0","nexus_repo":"releases"}`
+	req = httptest.NewRequest("POST", "/api/v1/jobs", bytes.NewBufferString(dupBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for duplicate artifact without force, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2b. Duplicate artifact creation with query force=true -> 201 Created
+	req = httptest.NewRequest("POST", "/api/v1/jobs?force=true", bytes.NewBufferString(dupBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for duplicate artifact with force=true, got %d: %s", rec.Code, rec.Body.String())
+	}
+
 	// 3. List Jobs via GET /api/v1/jobs
 	req = httptest.NewRequest("GET", "/api/v1/jobs", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -106,8 +129,8 @@ func TestAPIHealthAndJobs(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &jobs); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if len(jobs) != 1 || jobs[0].ID != "sync_sap" {
-		t.Errorf("expected 1 job with id sync_sap, got %v", jobs)
+	if len(jobs) != 2 {
+		t.Errorf("expected 2 jobs, got %d: %v", len(jobs), jobs)
 	}
 
 	// 4. Artifact URL
@@ -213,5 +236,110 @@ func TestAPIServerUsageAndDelete(t *testing.T) {
 	updatedJob, _ := database.GetJob("job-api-1")
 	if updatedJob.ServerID != "srv-api-2" {
 		t.Errorf("expected job on srv-api-2, got %s", updatedJob.ServerID)
+	}
+}
+
+func TestAPIDeployConflictAndForce(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	_ = database.CreateServer(&db.Server{
+		ID:         "srv-dep-1",
+		Name:       "Deploy Node",
+		Host:       "192.168.1.100",
+		Port:       22,
+		User:       "talend",
+		SSHKeyPath: "/tmp/key",
+	})
+
+	j := &db.Job{
+		ID:              "job-dep-1",
+		Name:            "Deploy Job",
+		ServerID:        "srv-dep-1",
+		GroupID:         "de.firma",
+		ArtifactID:      "art-dep",
+		ActiveVersion:   "1.0.0",
+		NexusRepo:       "releases",
+		AllowConcurrent: true,
+		IsDeployed:      true,
+		DeployedVersion: "1.0.0",
+	}
+	_ = database.CreateJob(j)
+
+	// 1. Deploy same version "1.0.0" -> should succeed without force (202 Accepted)
+	deployBodySame := `{"version":"1.0.0"}`
+	req := httptest.NewRequest("POST", "/api/v1/jobs/job-dep-1/deploy", bytes.NewBufferString(deployBodySame))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for same version deploy, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Deploy different version "2.0.0" without force -> should fail with 409 Conflict
+	deployBodyDiff := `{"version":"2.0.0"}`
+	req = httptest.NewRequest("POST", "/api/v1/jobs/job-dep-1/deploy", bytes.NewBufferString(deployBodyDiff))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for different version deploy without force, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 3. Deploy different version "2.0.0" with query force=true -> should succeed (202 Accepted)
+	req = httptest.NewRequest("POST", "/api/v1/jobs/job-dep-1/deploy?force=true", bytes.NewBufferString(deployBodyDiff))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for different version deploy with force=true, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Deploy different version "2.0.0" with body {"force": true} -> should succeed (202 Accepted)
+	deployBodyForce := `{"version":"2.0.0", "force": true}`
+	req = httptest.NewRequest("POST", "/api/v1/jobs/job-dep-1/deploy", bytes.NewBufferString(deployBodyForce))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for different version deploy with json force=true, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 5. Another job on the same server with same artifact
+	j2 := &db.Job{
+		ID:              "job-dep-2",
+		Name:            "Deploy Job 2",
+		ServerID:        "srv-dep-1",
+		GroupID:         "de.firma",
+		ArtifactID:      "art-dep",
+		ActiveVersion:   "2.0.0",
+		NexusRepo:       "releases",
+		AllowConcurrent: true,
+	}
+	_ = database.CreateJob(j2)
+
+	// Deploying j2 with version 3.0.0 while j1 is deployed with 1.0.0 without force -> 409 Conflict
+	deployBodyJ2 := `{"version":"3.0.0"}`
+	req = httptest.NewRequest("POST", "/api/v1/jobs/job-dep-2/deploy", bytes.NewBufferString(deployBodyJ2))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for j2 deploy when other job has artifact deployed, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Deploying j2 with force=true -> 202 Accepted
+	req = httptest.NewRequest("POST", "/api/v1/jobs/job-dep-2/deploy?force=true", bytes.NewBufferString(deployBodyJ2))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for j2 deploy with force=true, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

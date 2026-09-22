@@ -480,7 +480,7 @@ func (h *WebHandler) handleSettingsSystem(w http.ResponseWriter, r *http.Request
 		"NexusRepositories": repos,
 		"SuccessMsg":        r.URL.Query().Get("success"),
 		"ErrorMsg":          r.URL.Query().Get("error"),
-		"NewTokenRaw":       r.URL.Query().Get("token"),
+		"NewTokenRaw":       strings.TrimSpace(r.URL.Query().Get("token")),
 	}
 	h.render(w, r, "settings_system.html", data)
 }
@@ -920,13 +920,12 @@ func (h *WebHandler) handleWebTokenCreate(w http.ResponseWriter, r *http.Request
 	name := r.FormValue("name")
 	role := r.FormValue("role")
 
-	rawSecret, err := auth.GenerateRandomPassword(32)
+	fullToken, err := auth.GenerateAPIToken(40)
 	if err != nil {
 		http.Error(w, "Token-Generierung fehlgeschlagen", http.StatusInternalServerError)
 		return
 	}
 
-	fullToken := fmt.Sprintf("jobcon_%s", rawSecret)
 	hash := sha256.Sum256([]byte(fullToken))
 	tokenHash := hex.EncodeToString(hash[:])
 
@@ -942,7 +941,7 @@ func (h *WebHandler) handleWebTokenCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	http.Redirect(w, r, "/settings/system?token="+fullToken, http.StatusSeeOther)
+	http.Redirect(w, r, "/settings/system?token="+url.QueryEscape(fullToken), http.StatusSeeOther)
 }
 
 func (h *WebHandler) handleWebTokenDelete(w http.ResponseWriter, r *http.Request) {
