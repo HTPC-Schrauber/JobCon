@@ -8,6 +8,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
 	"net/http"
@@ -50,7 +51,8 @@ func setupTestAPI(t *testing.T) (*API, *http.ServeMux, *db.DB, string) {
 	})
 
 	cfg := config.DefaultConfig()
-	api := NewAPI(database, logStore, execManager, sshRunner, authMW, cfg)
+	syncer := nexus.NewSyncer(database, cfg, func() *nexus.Client { return nexus.NewClient("", "", "") })
+	api := NewAPI(database, logStore, execManager, sshRunner, authMW, cfg, syncer)
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux)
 

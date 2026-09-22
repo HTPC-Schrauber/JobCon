@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
+	"jobcon/internal/db"
 	"jobcon/internal/nexus"
 	"net/http"
 )
@@ -89,17 +91,40 @@ func (a *API) handleSearchNexus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	client := a.getNexusClient()
-	tree, err := client.BrowseTreeAdvanced(r.Context(), repo, group, name, query)
+	tree, err := a.db.SearchNexusArtifacts(repo, group, name, query)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, "Nexus-Suche fehlgeschlagen: "+err.Error())
 		return
 	}
 
 	if tree == nil {
-		tree = []nexus.GroupNode{}
+		tree = []db.GroupNode{}
 	}
 	a.jsonResponse(w, http.StatusOK, tree)
+}
+
+func (a *API) handleTriggerNexusSync(w http.ResponseWriter, r *http.Request) {
+	if a.syncer == nil {
+		a.jsonError(w, http.StatusBadRequest, "Nexus syncer is not configured")
+		return
+	}
+
+	go func() {
+		_ = a.syncer.Sync(context.Background())
+	}()
+
+	a.jsonResponse(w, http.StatusAccepted, map[string]any{
+		"status":  "started",
+		"message": "Nexus-Synchronisation gestartet",
+	})
+}
+
+func (a *API) handleGetNexusSyncStatus(w http.ResponseWriter, r *http.Request) {
+	if a.syncer == nil {
+		a.jsonResponse(w, http.StatusOK, nexus.SyncStatus{Status: "idle"})
+		return
+	}
+	a.jsonResponse(w, http.StatusOK, a.syncer.GetStatus())
 }
 
 func (a *API) handleCleanStorage(w http.ResponseWriter, r *http.Request) {

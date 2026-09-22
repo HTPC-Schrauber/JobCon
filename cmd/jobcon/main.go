@@ -8,6 +8,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
 	"jobcon/internal/web"
@@ -83,13 +84,25 @@ func main() {
 	sessions := auth.NewSessionManager(24 * time.Hour)
 	authMW := auth.NewMiddleware(localAuth, database, sessions)
 
-	// 6. Router & Handlers
+	// 6. Nexus Syncer
+	nexusSyncer := nexus.NewSyncer(database, cfg, func() *nexus.Client {
+		baseURL, _ := database.GetSetting("nexus_base_url", cfg.Nexus.BaseURL)
+		username, _ := database.GetSetting("nexus_username", cfg.Nexus.Username)
+		password, _ := database.GetSetting("nexus_password", cfg.Nexus.Password)
+		return nexus.NewClient(baseURL, username, password)
+	})
+
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+	go nexusSyncer.StartScheduler(bgCtx)
+
+	// 7. Router & Handlers
 	mux := http.NewServeMux()
 
-	apiHandler := api.NewAPI(database, logStore, execManager, sshRunner, authMW, cfg)
+	apiHandler := api.NewAPI(database, logStore, execManager, sshRunner, authMW, cfg, nexusSyncer)
 	apiHandler.RegisterRoutes(mux)
 
-	webHandler, err := web.NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	webHandler, err := web.NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg, nexusSyncer)
 	if err != nil {
 		log.Fatalf("Failed to initialize web UI: %v", err)
 	}

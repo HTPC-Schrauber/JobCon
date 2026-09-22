@@ -313,8 +313,9 @@ func (a *API) handleUndeployJob(w http.ResponseWriter, r *http.Request) {
 }
 
 type BulkJobsRequest struct {
-	JobIDs []string `json:"job_ids"`
-	Force  bool     `json:"force"`
+	JobIDs      []string `json:"job_ids"`
+	Concurrency int      `json:"concurrency,omitempty"`
+	Force       bool     `json:"force"`
 }
 
 type BulkJobResult struct {
@@ -337,19 +338,19 @@ func (a *API) handleBulkRunJobs(w http.ResponseWriter, r *http.Request) {
 		triggeredBy = user.Username
 	}
 
+	execs, err := a.runner.StartBulkRunQueue(r.Context(), req.JobIDs, req.Concurrency, triggeredBy)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	var results []BulkJobResult
-	for _, id := range req.JobIDs {
-		job, err := a.db.GetJob(id)
-		if err != nil {
-			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
-			continue
-		}
-		exec, err := a.runner.StartExecution(r.Context(), id, "run", job.ActiveVersion, job.DefaultContext, nil, triggeredBy)
-		if err != nil {
-			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
-		} else {
-			results = append(results, BulkJobResult{JobID: id, Success: true, Exec: exec})
-		}
+	for _, exec := range execs {
+		results = append(results, BulkJobResult{
+			JobID:   exec.JobID,
+			Success: true,
+			Exec:    exec,
+		})
 	}
 
 	a.jsonResponse(w, http.StatusOK, results)

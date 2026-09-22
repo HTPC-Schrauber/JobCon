@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"jobcon/internal/config"
 	"jobcon/internal/db"
 	"jobcon/internal/i18n"
+	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
 	"log"
@@ -19,6 +21,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -36,6 +39,23 @@ type WebHandler struct {
 	cfg       *config.Config
 	templates map[string]*template.Template
 	i18nMgr   *i18n.Manager
+	syncer    *nexus.Syncer
+}
+
+func formatTimeAgo(t *time.Time) string {
+	if t == nil {
+		return "noch nie"
+	}
+	d := time.Since(*t)
+	if d < 1*time.Minute {
+		return "gerade eben"
+	} else if d < 60*time.Minute {
+		return fmt.Sprintf("vor %d Min.", int(d.Minutes()))
+	} else if d < 24*time.Hour {
+		return fmt.Sprintf("vor %d Std.", int(d.Hours()))
+	} else {
+		return fmt.Sprintf("vor %d Tagen", int(d.Hours()/24))
+	}
 }
 
 func NewWebHandler(
@@ -46,12 +66,14 @@ func NewWebHandler(
 	localAuth *auth.LocalAuthenticator,
 	sessions *auth.SessionManager,
 	cfg *config.Config,
+	syncer ...*nexus.Syncer,
 ) (*WebHandler, error) {
 	templates := make(map[string]*template.Template)
 
 	funcMap := template.FuncMap{
-		"add": func(a, b int) int { return a + b },
-		"sub": func(a, b int) int { return a - b },
+		"add":     func(a, b int) int { return a + b },
+		"sub":     func(a, b int) int { return a - b },
+		"timeAgo": func(t *time.Time) string { return formatTimeAgo(t) },
 	}
 
 	// Login template (standalone)
@@ -79,6 +101,11 @@ func NewWebHandler(
 		templates[page] = tmpl
 	}
 
+	var nexusSyncer *nexus.Syncer
+	if len(syncer) > 0 {
+		nexusSyncer = syncer[0]
+	}
+
 	return &WebHandler{
 		db:        database,
 		runner:    runner,
@@ -88,6 +115,7 @@ func NewWebHandler(
 		sessions:  sessions,
 		cfg:       cfg,
 		templates: templates,
+		syncer:    nexusSyncer,
 		i18nMgr: func() *i18n.Manager {
 			if cfg != nil && (cfg.I18n.LocalesDir != "" || cfg.I18n.DefaultLanguage != "") {
 				mgr := i18n.NewManager(cfg.I18n.LocalesDir)
@@ -217,10 +245,13 @@ func (h *WebHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /web/tokens/create", adminWrap(h.handleWebTokenCreate))
 	mux.Handle("POST /web/tokens/delete", adminWrap(h.handleWebTokenDelete))
 
-	// Form actions - Settings (Nexus & Retention)
+	// Form actions - Settings (Nexus & Retention & Concurrency)
 	mux.Handle("POST /web/settings/nexus", adminWrap(h.handleWebSettingsNexus))
 	mux.Handle("POST /web/settings/nexus/repo/add", adminWrap(h.handleWebNexusRepoAdd))
 	mux.Handle("POST /web/settings/nexus/repo/delete", adminWrap(h.handleWebNexusRepoDelete))
+	mux.Handle("POST /web/settings/nexus/sync", adminWrap(h.handleWebNexusSync))
+	mux.Handle("POST /web/settings/nexus/interval", adminWrap(h.handleWebNexusInterval))
+	mux.Handle("POST /web/settings/concurrency", adminWrap(h.handleWebConcurrency))
 	mux.Handle("POST /web/settings/retention/clean", adminWrap(h.handleWebSettingsCleanRetention))
 }
 
@@ -361,25 +392,35 @@ func (h *WebHandler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	distinctGroups, _ := h.db.GetDistinctGroups()
 	servers, _ := h.db.ListServers()
 	nexusRepos := h.getNexusRepositories()
+	onlineServers, _ := h.db.CountOnlineServers()
+	runningCount, _ := h.db.CountActiveExecutions()
+	syncStatus := h.getNexusSyncStatus()
+	defaultConcurrency := h.getMaxConcurrentJobs()
 
 	data := map[string]any{
-		"Title":          "Talend Jobs",
-		"CurrentTab":     "dashboard",
-		"User":           user,
-		"Jobs":           pagedResult.Jobs,
-		"TotalCount":     pagedResult.TotalCount,
-		"CurrentPage":    pagedResult.CurrentPage,
-		"TotalPages":     pagedResult.TotalPages,
-		"PageSize":       pagedResult.PageSize,
-		"Search":         filter.Search,
-		"GroupID":        filter.GroupID,
-		"ServerID":       filter.ServerID,
-		"SortBy":         filter.SortBy,
-		"SortOrder":      filter.SortOrder,
-		"GroupBy":        groupBy,
-		"DistinctGroups": distinctGroups,
-		"Servers":        servers,
-		"NexusRepos":     nexusRepos,
+		"Title":                    "Talend Jobs",
+		"CurrentTab":               "dashboard",
+		"User":                     user,
+		"Jobs":                     pagedResult.Jobs,
+		"TotalCount":               pagedResult.TotalCount,
+		"CurrentPage":              pagedResult.CurrentPage,
+		"TotalPages":               pagedResult.TotalPages,
+		"PageSize":                 pagedResult.PageSize,
+		"Search":                   filter.Search,
+		"GroupID":                  filter.GroupID,
+		"ServerID":                 filter.ServerID,
+		"SortBy":                   filter.SortBy,
+		"SortOrder":                filter.SortOrder,
+		"GroupBy":                  groupBy,
+		"DistinctGroups":           distinctGroups,
+		"Servers":                  servers,
+		"OnlineServersCount":       onlineServers,
+		"TotalServersCount":        len(servers),
+		"RunningCount":             runningCount,
+		"NexusRepos":               nexusRepos,
+		"NexusSyncStatus":          syncStatus,
+		"NexusSyncTimeAgo":         formatTimeAgo(syncStatus.LastSyncedAt),
+		"DefaultMaxConcurrentJobs": defaultConcurrency,
 	}
 	h.render(w, r, "dashboard.html", data)
 }
@@ -467,20 +508,28 @@ func (h *WebHandler) handleSettingsSystem(w http.ResponseWriter, r *http.Request
 	}
 
 	repos := h.getNexusRepositories()
+	syncStatus := h.getNexusSyncStatus()
+	concurrency := h.getMaxConcurrentJobs()
+	artifactCount, _ := h.db.GetNexusArtifactCount()
 
 	data := map[string]any{
-		"Title":             "System & Tokens",
-		"CurrentTab":        "settings",
-		"User":              user,
-		"Tokens":            tokens,
-		"NexusBaseURL":      baseURL,
-		"NexusUser":         nexusUser,
-		"NexusAnonymous":    isAnonymous,
-		"HasPassword":       nexusPass != "",
-		"NexusRepositories": repos,
-		"SuccessMsg":        r.URL.Query().Get("success"),
-		"ErrorMsg":          r.URL.Query().Get("error"),
-		"NewTokenRaw":       strings.TrimSpace(r.URL.Query().Get("token")),
+		"Title":              "System & Tokens",
+		"CurrentTab":         "settings",
+		"User":               user,
+		"Tokens":             tokens,
+		"NexusBaseURL":       baseURL,
+		"NexusUser":          nexusUser,
+		"NexusAnonymous":     isAnonymous,
+		"HasPassword":        nexusPass != "",
+		"NexusRepositories":  repos,
+		"NexusSyncStatus":    syncStatus,
+		"NexusSyncTimeAgo":   formatTimeAgo(syncStatus.LastSyncedAt),
+		"NexusSyncInterval":  syncStatus.IntervalMinutes,
+		"NexusArtifactCount": artifactCount,
+		"MaxConcurrentJobs":  concurrency,
+		"SuccessMsg":         r.URL.Query().Get("success"),
+		"ErrorMsg":           r.URL.Query().Get("error"),
+		"NewTokenRaw":        strings.TrimSpace(r.URL.Query().Get("token")),
 	}
 	h.render(w, r, "settings_system.html", data)
 }
@@ -612,12 +661,17 @@ func (h *WebHandler) handleWebBulkRun(w http.ResponseWriter, r *http.Request) {
 		triggeredBy = "web:" + user.Username
 	}
 
-	for _, id := range jobIDs {
-		job, err := h.db.GetJob(id)
-		if err != nil {
-			continue
+	concurrency := 0
+	if cStr := r.FormValue("concurrency"); cStr != "" {
+		if c, err := strconv.Atoi(cStr); err == nil && c > 0 {
+			concurrency = c
 		}
-		_, _ = h.runner.StartExecution(r.Context(), job.ID, "run", job.ActiveVersion, job.DefaultContext, nil, triggeredBy)
+	}
+
+	_, err := h.runner.StartBulkRunQueue(r.Context(), jobIDs, concurrency, triggeredBy)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	http.Redirect(w, r, "/executions", http.StatusSeeOther)
@@ -1038,3 +1092,57 @@ func (h *WebHandler) getNexusRepositories() []config.NexusRepository {
 	}
 	return h.cfg.Nexus.Repositories
 }
+
+func (h *WebHandler) getMaxConcurrentJobs() int {
+	cStr, err := h.db.GetSetting("max_concurrent_jobs", "2")
+	if err == nil && cStr != "" {
+		if c, err2 := strconv.Atoi(cStr); err2 == nil && c > 0 {
+			return c
+		}
+	}
+	return 2
+}
+
+func (h *WebHandler) getNexusSyncStatus() nexus.SyncStatus {
+	if h.syncer != nil {
+		return h.syncer.GetStatus()
+	}
+	return nexus.SyncStatus{Status: "idle", IntervalMinutes: 60}
+}
+
+func (h *WebHandler) handleWebNexusSync(w http.ResponseWriter, r *http.Request) {
+	if h.syncer != nil {
+		go func() {
+			_ = h.syncer.Sync(context.Background())
+		}()
+	}
+	referer := r.Referer()
+	if referer == "" {
+		referer = "/settings/system"
+	}
+	http.Redirect(w, r, referer, http.StatusSeeOther)
+}
+
+func (h *WebHandler) handleWebNexusInterval(w http.ResponseWriter, r *http.Request) {
+	intvStr := strings.TrimSpace(r.FormValue("interval_minutes"))
+	if intvStr == "" {
+		intvStr = strings.TrimSpace(r.FormValue("interval"))
+	}
+	if intv, err := strconv.Atoi(intvStr); err == nil && intv >= 0 {
+		if h.syncer != nil {
+			_ = h.syncer.SetIntervalMinutes(intv)
+		} else {
+			_ = h.db.SetSetting("nexus_sync_interval_minutes", strconv.Itoa(intv))
+		}
+	}
+	http.Redirect(w, r, "/settings/system?success=Intervall+erfolgreich+gespeichert", http.StatusSeeOther)
+}
+
+func (h *WebHandler) handleWebConcurrency(w http.ResponseWriter, r *http.Request) {
+	conStr := strings.TrimSpace(r.FormValue("max_concurrent_jobs"))
+	if c, err := strconv.Atoi(conStr); err == nil && c > 0 {
+		_ = h.db.SetSetting("max_concurrent_jobs", strconv.Itoa(c))
+	}
+	http.Redirect(w, r, "/settings/system?success=Gleichzeitige+Jobs+erfolgreich+gespeichert", http.StatusSeeOther)
+}
+

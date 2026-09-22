@@ -5,6 +5,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
 	"log"
@@ -18,9 +19,10 @@ type API struct {
 	ssh      *runner.SSHRunner
 	authMW   *auth.Middleware
 	cfg      *config.Config
+	syncer   *nexus.Syncer
 }
 
-func NewAPI(database *db.DB, storage *storage.LogStorage, runner *runner.ExecutionManager, ssh *runner.SSHRunner, authMW *auth.Middleware, cfg *config.Config) *API {
+func NewAPI(database *db.DB, storage *storage.LogStorage, runner *runner.ExecutionManager, ssh *runner.SSHRunner, authMW *auth.Middleware, cfg *config.Config, syncer *nexus.Syncer) *API {
 	return &API{
 		db:      database,
 		storage: storage,
@@ -28,6 +30,7 @@ func NewAPI(database *db.DB, storage *storage.LogStorage, runner *runner.Executi
 		ssh:     ssh,
 		authMW:  authMW,
 		cfg:     cfg,
+		syncer:  syncer,
 	}
 }
 
@@ -97,6 +100,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/nexus/repositories", authWrap(a.handleGetNexusRepositories))
 	mux.Handle("POST /api/v1/nexus/test", roleWrap(auth.RoleAdmin, a.handleTestNexus))
 	mux.Handle("GET /api/v1/nexus/search", authWrap(a.handleSearchNexus))
+	mux.Handle("POST /api/v1/nexus/sync", roleWrap(auth.RoleOperator, a.handleTriggerNexusSync))
+	mux.Handle("GET /api/v1/nexus/sync/status", authWrap(a.handleGetNexusSyncStatus))
 
 	// User Preferences
 	mux.Handle("GET /api/v1/user/preferences", authWrap(a.handleGetUserPreferences))

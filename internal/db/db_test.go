@@ -369,3 +369,87 @@ func TestGetJobsByArtifact(t *testing.T) {
 	}
 }
 
+func TestNexusArtifactsCacheAndCounts(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Initial counts
+	online, err := database.CountOnlineServers()
+	if err != nil || online != 0 {
+		t.Fatalf("expected 0 online servers, got %d (err: %v)", online, err)
+	}
+	active, err := database.CountActiveExecutions()
+	if err != nil || active != 0 {
+		t.Fatalf("expected 0 active executions, got %d (err: %v)", active, err)
+	}
+
+	// Add servers and verify count
+	_ = database.CreateServer(&Server{ID: "s1", Name: "S1", Host: "1.1.1.1", SSHKeyPath: "/k", Status: "online"})
+	_ = database.CreateServer(&Server{ID: "s2", Name: "S2", Host: "1.1.1.2", SSHKeyPath: "/k", Status: "offline"})
+	online, _ = database.CountOnlineServers()
+	if online != 1 {
+		t.Errorf("expected 1 online server, got %d", online)
+	}
+
+	// Add execution in pending state
+	_ = database.CreateJob(&Job{ID: "j1", Name: "J1", ServerID: "s1", GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0", NexusRepo: "r"})
+	_ = database.CreateExecution(&Execution{ID: "e1", JobID: "j1", Action: "run", Status: "pending", Version: "1.0", TriggeredBy: "test"})
+	active, _ = database.CountActiveExecutions()
+	if active != 1 {
+		t.Errorf("expected 1 active execution, got %d", active)
+	}
+
+	// Transition to running
+	if err := database.SetExecutionRunning("e1"); err != nil {
+		t.Fatalf("SetExecutionRunning failed: %v", err)
+	}
+	e, _ := database.GetExecution("e1")
+	if e.Status != "running" {
+		t.Errorf("expected status 'running', got %s", e.Status)
+	}
+
+	// Test Nexus artifacts cache
+	comps := []SyncedComponent{
+		{Group: "com.opitzhome.jobs", Name: "invoice_export", Version: "1.0.0"},
+		{Group: "com.opitzhome.jobs", Name: "invoice_export", Version: "1.1.0"},
+		{Group: "com.opitzhome.jobs", Name: "inventory_update", Version: "2.0.0"},
+		{Group: "com.opitzhome.test", Name: "echo_test", Version: "0.9.0"},
+	}
+
+	if err := database.ReplaceNexusArtifacts("releases", comps); err != nil {
+		t.Fatalf("ReplaceNexusArtifacts failed: %v", err)
+	}
+
+	count, err := database.GetNexusArtifactCount()
+	if err != nil || count != 4 {
+		t.Fatalf("expected 4 artifacts, got %d (err: %v)", count, err)
+	}
+
+	// Search by query
+	nodes, err := database.SearchNexusArtifacts("releases", "", "", "invoice")
+	if err != nil {
+		t.Fatalf("SearchNexusArtifacts failed: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 group node, got %d", len(nodes))
+	}
+	if nodes[0].Group != "com.opitzhome.jobs" {
+		t.Errorf("expected group com.opitzhome.jobs, got %s", nodes[0].Group)
+	}
+	if len(nodes[0].Artifacts) != 1 || nodes[0].Artifacts[0].ArtifactID != "invoice_export" {
+		t.Fatalf("expected artifact invoice_export, got %+v", nodes[0].Artifacts)
+	}
+	if len(nodes[0].Artifacts[0].Versions) != 2 {
+		t.Errorf("expected 2 versions, got %d", len(nodes[0].Artifacts[0].Versions))
+	}
+	if nodes[0].Artifacts[0].Versions[0] != "1.1.0" {
+		t.Errorf("expected newest version 1.1.0 first, got %s", nodes[0].Artifacts[0].Versions[0])
+	}
+}
+

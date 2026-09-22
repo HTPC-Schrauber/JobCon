@@ -4,6 +4,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
 	"net/http"
@@ -34,8 +35,9 @@ func TestWebHandlerDashboardAndAuth(t *testing.T) {
 	localAuth := auth.NewLocalAuthenticator(database)
 	sessions := auth.NewSessionManager(1 * time.Hour)
 	authMW := auth.NewMiddleware(localAuth, database, sessions)
+	syncer := nexus.NewSyncer(database, cfg, func() *nexus.Client { return nexus.NewClient("", "", "") })
 
-	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg)
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg, syncer)
 	if err != nil {
 		t.Fatalf("failed to create web handler: %v", err)
 	}
@@ -926,6 +928,154 @@ func TestWebJobAndServerEnvFile(t *testing.T) {
 		t.Errorf("expected updated job env_file '/opt/talend/jobs/.job_v2.env', got '%s'", jobUpdated.EnvFile)
 	}
 }
+
+func TestHighDensityUIAndNexusSyncAndConcurrencySettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	logStore, err := storage.NewLogStorage(filepath.Join(tmpDir, "logs"), true)
+	if err != nil {
+		t.Fatalf("failed to init log storage: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	sshRunner := runner.NewSSHRunner("/tmp/key", 5, 5)
+	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
+	localAuth := auth.NewLocalAuthenticator(database)
+	sessions := auth.NewSessionManager(1 * time.Hour)
+	authMW := auth.NewMiddleware(localAuth, database, sessions)
+	syncer := nexus.NewSyncer(database, cfg, func() *nexus.Client { return nexus.NewClient("", "", "") })
+
+	webHandler, err := NewWebHandler(database, execManager, logStore, authMW, localAuth, sessions, cfg, syncer)
+	if err != nil {
+		t.Fatalf("failed to create web handler: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	webHandler.RegisterRoutes(mux)
+
+	user := &db.User{ID: "admin_u", Username: "admin", Role: "admin", DisplayName: "Maik Opitz"}
+	sessionToken := sessions.CreateSession(user)
+
+	// 1. Add server and running job
+	server := &db.Server{ID: "srv_hd_1", Name: "TESTSERVER-01", Host: "127.0.0.1", Port: 22, User: "talend", Status: "online"}
+	_ = database.CreateServer(server)
+
+	job := &db.Job{ID: "job_running_1", Name: "Echo Test", ServerID: "srv_hd_1", GroupID: "com.opitzhome.test", ArtifactID: "echo_test", ActiveVersion: "1.0.0", NexusRepo: "releases"}
+	_ = database.CreateJob(job)
+
+	exec := &db.Execution{ID: "exec_run_1", JobID: "job_running_1", Status: "running", TriggeredBy: "web:admin", LogPath: "/tmp/fake.log"}
+	_ = database.CreateExecution(exec)
+
+	// 2. GET / (Dashboard)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for dashboard, got %d", rec.Code)
+	}
+
+	html := rec.Body.String()
+	// Verify Operational High-Density Status Strip
+	if !strings.Contains(html, "Jobs:") {
+		t.Errorf("expected 'Jobs:' in status strip")
+	}
+	if !strings.Contains(html, "JobServer:") {
+		t.Errorf("expected 'JobServer:' in status strip")
+	}
+	if !strings.Contains(html, "online") {
+		t.Errorf("expected 'online' in status strip")
+	}
+	if !strings.Contains(html, "Laufend:") {
+		t.Errorf("expected 'Laufend:' in status strip")
+	}
+	if !strings.Contains(html, "Nexus Sync:") {
+		t.Errorf("expected 'Nexus Sync:' in status strip")
+	}
+	if !strings.Contains(html, "table-scroll-container") {
+		t.Errorf("expected 'table-scroll-container' for sticky headers")
+	}
+	if !strings.Contains(html, "bulkConcurrencyInput") {
+		t.Errorf("expected 'bulkConcurrencyInput' for parallel concurrency override")
+	}
+	if !strings.Contains(html, "Parallel:") {
+		t.Errorf("expected 'Parallel:' label in bulk bar")
+	}
+	// Verify running job indicator
+	if !strings.Contains(html, "animate-ping") {
+		t.Errorf("expected 'animate-ping' pulsing dot for running job")
+	}
+	if !strings.Contains(html, "Live-Log") {
+		t.Errorf("expected 'Live-Log' link for running job")
+	}
+	if !strings.Contains(html, "RUNNING") {
+		t.Errorf("expected 'RUNNING' badge for running job")
+	}
+
+	// 3. GET /settings/system
+	req = httptest.NewRequest("GET", "/settings/system", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for settings system, got %d", rec.Code)
+	}
+	settingsHTML := rec.Body.String()
+	if !strings.Contains(settingsHTML, "Nexus Synchronisation &amp; Lokaler Cache") {
+		t.Errorf("expected Nexus Synchronisation card in settings")
+	}
+	if !strings.Contains(settingsHTML, "Job-Ausführung &amp; Warteschlange") {
+		t.Errorf("expected Job-Ausführung & Warteschlange card in settings")
+	}
+	if !strings.Contains(settingsHTML, "max_concurrent_jobs") {
+		t.Errorf("expected max_concurrent_jobs input in settings")
+	}
+
+	// 4. POST /web/settings/concurrency
+	concForm := url.Values{
+		"max_concurrent_jobs": {"5"},
+	}
+	req = httptest.NewRequest("POST", "/web/settings/concurrency", strings.NewReader(concForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("expected 303 redirect after concurrency update, got %d", rec.Code)
+	}
+
+	storedConc, err := database.GetSetting("max_concurrent_jobs", "2")
+	if err != nil || storedConc != "5" {
+		t.Errorf("expected stored max_concurrent_jobs='5', got '%s', err: %v", storedConc, err)
+	}
+
+	// 5. POST /web/settings/nexus/interval
+	intvForm := url.Values{
+		"interval_minutes": {"15"},
+	}
+	req = httptest.NewRequest("POST", "/web/settings/nexus/interval", strings.NewReader(intvForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("expected 303 redirect after interval update, got %d", rec.Code)
+	}
+
+	if syncer.GetIntervalMinutes() != 15 {
+		t.Errorf("expected syncer interval 15, got %d", syncer.GetIntervalMinutes())
+	}
+}
+
 
 
 

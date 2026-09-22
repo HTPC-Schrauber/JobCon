@@ -1,37 +1,37 @@
 :root {
   color-scheme: dark;
-  /* Carbon & Graphite Palette */
-  --bg: #0f0f0f;
-  --surface: #171717;
-  --surface-hover: #1f1f1f;
-  --surface-border: #282828;
-  --surface-border-subtle: #202020;
-  --surface-active: #242424;
+  /* Dark Pro Engineering Palette */
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-hover: #1c2128;
+  --surface-border: #30363d;
+  --surface-border-subtle: #21262d;
+  --surface-active: #1f2733;
 
   /* Typography */
-  --text: #f4f4f5;
-  --text-muted: #9ca3af;
-  --text-subtle: #6b7280;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-subtle: #6e7681;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 
-  /* Adam Hall Signature Brand Colors */
-  --primary: #f58345;
-  --primary-hover: #e06d2d;
-  --primary-subtle: rgba(245, 131, 69, 0.12);
-  --primary-border: rgba(245, 131, 69, 0.35);
+  /* Warm Amber Brand Colors */
+  --primary: #f59e0b;
+  --primary-hover: #d97706;
+  --primary-subtle: rgba(245, 158, 11, 0.12);
+  --primary-border: rgba(245, 158, 11, 0.35);
 
   /* Status & Accents */
-  --accent-cyan: #0097c8;
+  --accent-cyan: #38bdf8;
   --success: #10b981;
   --danger: #ef4444;
-  --warning: #e3bf53;
+  --warning: #f59e0b;
 
-  /* Precision Radii (Crisp engineering corners, no pill shapes) */
+  /* Precision Radii */
   --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 }
 
 * {
@@ -85,9 +85,22 @@ a:hover {
   to { transform: rotate(360deg); }
 }
 
+/* Custom Scrollbar for dense high-tech look */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+/* Top Accent Line */
+.top-accent-line {
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, transparent 100%);
+}
+
 /* Header & Navbar */
 .navbar {
-  background: #141414;
+  background: #0d1117;
   border-bottom: 1px solid var(--surface-border);
   display: flex;
   justify-content: space-between;
@@ -106,16 +119,17 @@ a:hover {
 }
 
 .brand-mark {
-  width: 26px;
-  height: 26px;
-  background: var(--primary);
-  color: #0f0f0f;
-  border-radius: var(--radius-xs);
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #f59e0b, #b45309);
+  color: #000000;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  box-shadow: 0 0 10px rgba(245, 131, 69, 0.3);
+  font-size: 15px;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
 }
 
 .brand-text-block {
@@ -202,9 +216,9 @@ a:hover {
 }
 
 .container {
-  max-width: 1320px;
-  margin: 20px auto;
-  padding: 0 20px;
+  max-width: 1720px;
+  margin: 16px auto;
+  padding: 0 16px;
 }
 
 /* Cards */
@@ -293,10 +307,27 @@ a:hover {
 }
 
 /* Tables */
+.table-scroll-container {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 250px);
+  min-height: 250px;
+}
 table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--surface);
+}
+thead tr.table-filter-row th {
+  top: 36px;
+  z-index: 19;
+  background-color: var(--surface);
 }
 th {
   color: var(--text-muted);
@@ -340,15 +371,15 @@ tr:hover td {
   border-color: rgba(239, 68, 68, 0.28);
 }
 .badge-running {
-  background: rgba(245, 131, 69, 0.12);
-  color: #f58345;
-  border-color: rgba(245, 131, 69, 0.35);
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
   animation: pulse-border 2s infinite;
 }
 .badge-warning {
-  background: rgba(227, 191, 83, 0.12);
-  color: #e3bf53;
-  border-color: rgba(227, 191, 83, 0.3);
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
 }
 .badge-neutral {
   background: rgba(255, 255, 255, 0.05);
@@ -357,8 +388,8 @@ tr:hover td {
 }
 
 @keyframes pulse-border {
-  0%, 100% { opacity: 1; border-color: rgba(245, 131, 69, 0.5); }
-  50% { opacity: 0.7; border-color: rgba(245, 131, 69, 0.2); }
+  0%, 100% { opacity: 1; border-color: rgba(245, 158, 11, 0.5); }
+  50% { opacity: 0.7; border-color: rgba(245, 158, 11, 0.2); }
 }
 
 /* Buttons - Industrial & Crisp */
@@ -391,7 +422,7 @@ tr:hover td {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
   color: #0f0f0f;
-  box-shadow: 0 0 12px rgba(245, 131, 69, 0.35);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
 }
 
 .btn-secondary {
@@ -489,7 +520,7 @@ input:focus, select:focus, textarea:focus {
   border-radius: 50%;
   background: var(--primary);
   display: inline-block;
-  box-shadow: 0 0 8px rgba(245, 131, 69, 0.5);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
 }
 .terminal-content {
   flex: 1;
@@ -725,7 +756,7 @@ input:focus, select:focus, textarea:focus {
   gap: 6px;
 }
 .tree-artifact-title:hover {
-  background: rgba(245, 131, 69, 0.08);
+  background: rgba(245, 158, 11, 0.08);
   color: #ffffff;
 }
 .tree-versions-list {
@@ -824,16 +855,27 @@ th.sortable:hover {
 .job-row {
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.1s ease;
+  border-left: 4px solid transparent;
+  transition: background-color 0.15s ease, border-left-color 0.15s ease;
 }
+.job-row:hover {
+  background-color: rgba(28, 33, 40, 0.5);
+}
+.job-row.is-selected,
+.job-row.selected {
+  background-color: #1f2733 !important;
+  border-left-color: #f59e0b !important;
+}
+.job-row.is-selected td,
 .job-row.selected td {
-  background-color: rgba(245, 131, 69, 0.16) !important;
+  background-color: #1f2733 !important;
 }
+.job-row.is-selected td:first-child,
 .job-row.selected td:first-child {
-  border-left: 3px solid var(--primary);
+  border-left: 4px solid #f59e0b;
 }
 
-/* Deployed Status Indicator Dots */
+/* Deployed & Running Status Indicator Dots */
 .status-dot {
   display: inline-block;
   width: 8px;
@@ -849,6 +891,27 @@ th.sortable:hover {
 .status-dot-undeployed {
   background-color: #52525b;
 }
+.status-dot-running {
+  background-color: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+.animate-ping {
+  animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 
 /* Bulk Actions Toolbar */
 .bulk-toolbar {
@@ -856,11 +919,15 @@ th.sortable:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: #1b1b1b;
-  border: 1px solid var(--primary-border);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: var(--radius-sm);
   padding: 8px 14px;
   margin-bottom: 12px;
+  position: sticky;
+  top: 56px;
+  z-index: 30;
+  backdrop-filter: blur(4px);
 }
 .bulk-toolbar-info {
   display: flex;
@@ -868,7 +935,7 @@ th.sortable:hover {
   gap: 10px;
   font-size: 12.5px;
   font-weight: 600;
-  color: #fff;
+  color: #fcd34d;
 }
 .bulk-toolbar-actions {
   display: flex;

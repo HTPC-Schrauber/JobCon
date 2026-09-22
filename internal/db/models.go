@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -208,6 +209,12 @@ func (db *DB) UpdateServerStatus(id, status string) error {
 	_, err := db.Exec(`UPDATE servers SET status = ?, last_checked_at = ?, updated_at = ? WHERE id = ?`,
 		status, now, now, id)
 	return err
+}
+
+func (db *DB) CountOnlineServers() (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM servers WHERE status = 'online'`).Scan(&count)
+	return count, err
 }
 
 func (db *DB) GetJobsByServerID(serverID string) ([]Job, error) {
@@ -696,6 +703,18 @@ func (db *DB) CountActiveExecutionsForJob(jobID string) (int, error) {
 	return count, err
 }
 
+func (db *DB) CountActiveExecutions() (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM executions WHERE status IN ('pending', 'running')`).Scan(&count)
+	return count, err
+}
+
+func (db *DB) SetExecutionRunning(id string) error {
+	now := time.Now()
+	_, err := db.Exec(`UPDATE executions SET status = 'running', started_at = ? WHERE id = ?`, now, id)
+	return err
+}
+
 func (db *DB) UpdateExecutionStatus(id, status string, exitCode *int, durationMS *int64) error {
 	now := time.Now()
 	_, err := db.Exec(`
@@ -1042,3 +1061,164 @@ func (db *DB) GetAllUserPreferences(userID string) (map[string]string, error) {
 	return prefs, rows.Err()
 }
 
+// -----------------------------------------------------------------------------
+// NEXUS LOCAL CACHE
+// -----------------------------------------------------------------------------
+
+type SyncedComponent struct {
+	Group   string `json:"group"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type ArtifactNode struct {
+	ArtifactID string   `json:"artifact_id"`
+	Group      string   `json:"group"`
+	Versions   []string `json:"versions"`
+}
+
+type GroupNode struct {
+	Group     string         `json:"group"`
+	Artifacts []ArtifactNode `json:"artifacts"`
+}
+
+func (db *DB) ReplaceNexusArtifacts(repository string, components []SyncedComponent) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM nexus_artifacts WHERE repository = ?`, repository); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO nexus_artifacts (repository, group_id, artifact_id, version, synced_at) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	for _, c := range components {
+		g := strings.TrimSpace(c.Group)
+		if g == "" {
+			g = "default"
+		}
+		a := strings.TrimSpace(c.Name)
+		v := strings.TrimSpace(c.Version)
+		if a == "" {
+			continue
+		}
+		if _, err := stmt.Exec(repository, g, a, v, now); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (db *DB) SearchNexusArtifacts(repository, groupFilter, nameFilter, query string) ([]GroupNode, error) {
+	whereClauses := []string{"1=1"}
+	var args []any
+
+	if repository != "" {
+		whereClauses = append(whereClauses, "repository = ?")
+		args = append(args, repository)
+	}
+
+	cleanGroup := strings.TrimSpace(groupFilter)
+	cleanGroup = strings.Trim(cleanGroup, "*? \t")
+	if cleanGroup != "" {
+		whereClauses = append(whereClauses, "group_id LIKE ?")
+		args = append(args, cleanGroup+"%")
+	}
+
+	cleanName := strings.TrimSpace(nameFilter)
+	cleanName = strings.Trim(cleanName, "*? \t")
+	if cleanName != "" {
+		whereClauses = append(whereClauses, "artifact_id LIKE ?")
+		args = append(args, "%"+cleanName+"%")
+	}
+
+	cleanQuery := strings.TrimSpace(query)
+	cleanQuery = strings.Trim(cleanQuery, "*? \t")
+	if cleanQuery != "" {
+		whereClauses = append(whereClauses, "(group_id LIKE ? OR artifact_id LIKE ? OR version LIKE ?)")
+		term := "%" + cleanQuery + "%"
+		args = append(args, term, term, term)
+	}
+
+	querySQL := fmt.Sprintf(`
+		SELECT group_id, artifact_id, version
+		FROM nexus_artifacts
+		WHERE %s
+		ORDER BY group_id ASC, artifact_id ASC, version DESC`,
+		strings.Join(whereClauses, " AND "))
+
+	rows, err := db.Query(querySQL, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	treeMap := make(map[string]map[string]map[string]struct{})
+	for rows.Next() {
+		var g, a, v string
+		if err := rows.Scan(&g, &a, &v); err != nil {
+			return nil, err
+		}
+		if g == "" {
+			g = "default"
+		}
+		if a == "" {
+			continue
+		}
+		if _, exists := treeMap[g]; !exists {
+			treeMap[g] = make(map[string]map[string]struct{})
+		}
+		if _, exists := treeMap[g][a]; !exists {
+			treeMap[g][a] = make(map[string]struct{})
+		}
+		if v != "" {
+			treeMap[g][a][v] = struct{}{}
+		}
+	}
+
+	var groupNodes []GroupNode
+	for groupName, artMap := range treeMap {
+		var artifacts []ArtifactNode
+		for artName, verSet := range artMap {
+			var versions []string
+			for ver := range verSet {
+				versions = append(versions, ver)
+			}
+			sort.Slice(versions, func(i, j int) bool {
+				return versions[i] > versions[j]
+			})
+			artifacts = append(artifacts, ArtifactNode{
+				ArtifactID: artName,
+				Group:      groupName,
+				Versions:   versions,
+			})
+		}
+		sort.Slice(artifacts, func(i, j int) bool {
+			return artifacts[i].ArtifactID < artifacts[j].ArtifactID
+		})
+		groupNodes = append(groupNodes, GroupNode{
+			Group:     groupName,
+			Artifacts: artifacts,
+		})
+	}
+	sort.Slice(groupNodes, func(i, j int) bool {
+		return groupNodes[i].Group < groupNodes[j].Group
+	})
+
+	return groupNodes, rows.Err()
+}
+
+func (db *DB) GetNexusArtifactCount() (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM nexus_artifacts`).Scan(&count)
+	return count, err
+}

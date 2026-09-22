@@ -88,3 +88,32 @@ func TestBuildNexusURL(t *testing.T) {
 		})
 	}
 }
+
+func TestStartBulkRunQueue(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer database.Close()
+
+	_ = database.CreateServer(&db.Server{ID: "srv-1", Name: "Server 1", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"})
+	_ = database.CreateJob(&db.Job{ID: "job-1", Name: "Job 1", ServerID: "srv-1", GroupID: "g", ArtifactID: "a1", ActiveVersion: "1.0"})
+	_ = database.CreateJob(&db.Job{ID: "job-2", Name: "Job 2", ServerID: "srv-1", GroupID: "g", ArtifactID: "a2", ActiveVersion: "1.0"})
+	_ = database.CreateJob(&db.Job{ID: "job-3", Name: "Job 3", ServerID: "srv-1", GroupID: "g", ArtifactID: "a3", ActiveVersion: "1.0"})
+
+	m := NewExecutionManager(database, nil, nil, &config.NexusConfig{})
+
+	execs, err := m.StartBulkRunQueue(nil, []string{"job-1", "job-2", "job-3"}, 2, "test-user")
+	if err != nil {
+		t.Fatalf("StartBulkRunQueue failed: %v", err)
+	}
+	if len(execs) != 3 {
+		t.Fatalf("expected 3 executions, got %d", len(execs))
+	}
+	for _, e := range execs {
+		if e.Status != "pending" && e.Status != "running" && e.Status != "failed" {
+			t.Errorf("unexpected execution status: %s", e.Status)
+		}
+	}
+}

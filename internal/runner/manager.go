@@ -8,6 +8,7 @@ import (
 	"jobcon/internal/db"
 	"jobcon/internal/storage"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -113,18 +114,8 @@ func (m *ExecutionManager) StartExecution(
 	}
 
 	executionID := fmt.Sprintf("exec_%s", uuid.New().String()[:8])
-	nexusURL := m.BuildNexusURL(job, targetVersion)
 
-	// Create log writer
-	logFile, logPath, err := m.storage.CreateLogWriter(executionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create log file: %w", err)
-	}
-
-	broadcaster := NewLogBroadcaster(5000)
-	multiWriter := NewMultiWriter(logFile, broadcaster)
-
-	// Create DB execution record
+	// Create DB execution record in running state
 	execution := &db.Execution{
 		ID:          executionID,
 		JobID:       jobID,
@@ -133,14 +124,138 @@ func (m *ExecutionManager) StartExecution(
 		Status:      "running",
 		Version:     targetVersion,
 		Context:     targetContext,
-		LogPath:     logPath,
 		TriggeredBy: triggeredBy,
 	}
 
 	if err := m.db.CreateExecution(execution); err != nil {
-		_ = logFile.Close()
 		return nil, fmt.Errorf("failed to save execution: %w", err)
 	}
+
+	go m.executeJobCommand(server, job, execution, targetVersion, action, targetContext, params)
+
+	return execution, nil
+}
+
+// StartBulkRunQueue queues and executes a list of jobs with controlled concurrency.
+// If concurrency <= 0, the setting 'max_concurrent_jobs' is used (default 2).
+func (m *ExecutionManager) StartBulkRunQueue(
+	ctx context.Context,
+	jobIDs []string,
+	concurrency int,
+	triggeredBy string,
+) ([]*db.Execution, error) {
+	if concurrency <= 0 {
+		concurrencyStr, _ := m.db.GetSetting("max_concurrent_jobs", "2")
+		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 {
+			concurrency = c
+		} else {
+			concurrency = 2
+		}
+	}
+
+	type queueItem struct {
+		job    *db.Job
+		server *db.Server
+		exec   *db.Execution
+	}
+
+	var items []queueItem
+	var execs []*db.Execution
+
+	for _, id := range jobIDs {
+		job, err := m.db.GetJob(id)
+		if err != nil {
+			log.Printf("[BulkRunQueue] Skipping job %s: %v", id, err)
+			continue
+		}
+		server, err := m.db.GetServer(job.ServerID)
+		if err != nil {
+			log.Printf("[BulkRunQueue] Skipping job %s (server %s not found): %v", id, job.ServerID, err)
+			continue
+		}
+
+		targetVersion := job.ActiveVersion
+		targetContext := job.DefaultContext
+
+		executionID := fmt.Sprintf("exec_%s", uuid.New().String()[:8])
+		execution := &db.Execution{
+			ID:          executionID,
+			JobID:       job.ID,
+			JobName:     job.Name,
+			Action:      "run",
+			Status:      "pending",
+			Version:     targetVersion,
+			Context:     targetContext,
+			TriggeredBy: triggeredBy,
+		}
+
+		if err := m.db.CreateExecution(execution); err != nil {
+			log.Printf("[BulkRunQueue] Failed to create pending execution for job %s: %v", job.ID, err)
+			continue
+		}
+
+		items = append(items, queueItem{job: job, server: server, exec: execution})
+		execs = append(execs, execution)
+	}
+
+	if len(items) == 0 {
+		return nil, errors.New("keine gültigen Jobs für den Start gefunden")
+	}
+
+	// Launch background worker pool
+	go func(queue []queueItem, limit int) {
+		sem := make(chan struct{}, limit)
+		var wg sync.WaitGroup
+
+		for _, item := range queue {
+			sem <- struct{}{}
+			wg.Add(1)
+
+			go func(qItem queueItem) {
+				defer func() {
+					<-sem
+					wg.Done()
+				}()
+
+				_ = m.db.SetExecutionRunning(qItem.exec.ID)
+				m.executeJobCommand(qItem.server, qItem.job, qItem.exec, qItem.exec.Version, "run", qItem.exec.Context, nil)
+			}(item)
+		}
+
+		wg.Wait()
+		log.Printf("[BulkRunQueue] Finished batch execution of %d jobs (concurrency limit: %d)", len(queue), limit)
+	}(items, concurrency)
+
+	return execs, nil
+}
+
+func (m *ExecutionManager) executeJobCommand(
+	server *db.Server,
+	job *db.Job,
+	execution *db.Execution,
+	targetVersion string,
+	action string,
+	targetContext string,
+	params map[string]string,
+) {
+	if m.storage == nil {
+		return
+	}
+
+	logFile, logPath, err := m.storage.CreateLogWriter(execution.ID)
+	if err != nil {
+		log.Printf("[Execution %s] Failed to create log file: %v", execution.ID, err)
+		failCode := 1
+		failDur := int64(0)
+		_ = m.db.UpdateExecutionStatus(execution.ID, "failed", &failCode, &failDur)
+		return
+	}
+
+	execution.LogPath = logPath
+	_, _ = m.db.Exec(`UPDATE executions SET log_path = ? WHERE id = ?`, logPath, execution.ID)
+
+	broadcaster := NewLogBroadcaster(5000)
+	multiWriter := NewMultiWriter(logFile, broadcaster)
 
 	scriptsDir := server.ScriptsDir
 	if scriptsDir == "" {
@@ -156,13 +271,12 @@ func (m *ExecutionManager) StartExecution(
 		keepReleases = 3
 	}
 
-	// Determine environment file
 	envFile := job.EnvFile
 	if envFile == "" {
 		envFile = server.EnvFile
 	}
+	nexusURL := m.BuildNexusURL(job, targetVersion)
 
-	// Build CLI command
 	var cmdParts []string
 	if action == "deploy" {
 		cmdParts = append(cmdParts, ctlScript, "deploy",
@@ -178,7 +292,6 @@ func (m *ExecutionManager) StartExecution(
 			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
 		)
 	} else {
-		// Run action
 		cmdParts = append(cmdParts, ctlScript, "run",
 			"--job", fmt.Sprintf("%q", job.ArtifactID),
 			"--version", fmt.Sprintf("%q", targetVersion),
@@ -208,69 +321,59 @@ func (m *ExecutionManager) StartExecution(
 	}
 
 	remoteCommand := strings.Join(cmdParts, " ")
-
-	// Context for execution lifecycle
 	execCtx, cancel := context.WithCancel(context.Background())
 
 	m.mu.Lock()
-	m.active[executionID] = &ActiveExecution{
+	m.active[execution.ID] = &ActiveExecution{
 		Execution:   execution,
 		Broadcaster: broadcaster,
 		Cancel:      cancel,
 	}
 	m.mu.Unlock()
 
-	// Launch background runner
-	go func() {
-		defer func() {
-			multiWriter.Flush()
-			_ = logFile.Close()
-			finalPath, _ := m.storage.FinalizeLog(logPath)
+	defer func() {
+		multiWriter.Flush()
+		_ = logFile.Close()
+		finalPath, _ := m.storage.FinalizeLog(logPath)
 
-			m.mu.Lock()
-			delete(m.active, executionID)
-			m.mu.Unlock()
+		m.mu.Lock()
+		delete(m.active, execution.ID)
+		m.mu.Unlock()
 
-			// Delay closing broadcaster slightly so in-flight SSE streams read final lines
-			time.Sleep(1 * time.Second)
-			broadcaster.Close()
+		time.Sleep(1 * time.Second)
+		broadcaster.Close()
 
-			// Clean retention
-			m.storage.CleanRetention(m.db, jobID, job.RetentionRuns)
-			_ = finalPath
-		}()
-
-		startTime := time.Now()
-		exitCode, runErr := m.sshRunner.RunCommand(execCtx, server, remoteCommand, multiWriter)
-		duration := time.Since(startTime).Milliseconds()
-
-		status := "success"
-		if errors.Is(runErr, context.Canceled) || exitCode == 130 {
-			status = "aborted"
-		} else if runErr != nil || exitCode != 0 {
-			status = "failed"
-		}
-
-		_ = m.db.UpdateExecutionStatus(executionID, status, &exitCode, &duration)
-
-		// If this was a successful deploy or run, set active_version and deployed status on the job
-		if action == "deploy" && status == "success" {
-			_ = m.db.UpdateJobActiveVersion(jobID, targetVersion)
-			_ = m.db.SetJobDeployed(jobID, true, targetVersion)
-		} else if action == "run" && (status == "success" || (runErr == nil && exitCode != 10 && exitCode != 11 && exitCode != 12 && exitCode != 20 && exitCode != 21)) {
-			if targetVersion != "" {
-				_ = m.db.UpdateJobActiveVersion(jobID, targetVersion)
-			}
-			_ = m.db.SetJobDeployed(jobID, true, targetVersion)
-		} else if action == "undeploy" && status == "success" {
-			_ = m.db.SetJobDeployed(jobID, false, "")
-		}
-
-		log.Printf("[Execution %s] Finished with status %s (exit code %d, duration %dms)",
-			executionID, status, exitCode, duration)
+		m.storage.CleanRetention(m.db, job.ID, job.RetentionRuns)
+		_ = finalPath
 	}()
 
-	return execution, nil
+	startTime := time.Now()
+	exitCode, runErr := m.sshRunner.RunCommand(execCtx, server, remoteCommand, multiWriter)
+	duration := time.Since(startTime).Milliseconds()
+
+	status := "success"
+	if errors.Is(runErr, context.Canceled) || exitCode == 130 {
+		status = "aborted"
+	} else if runErr != nil || exitCode != 0 {
+		status = "failed"
+	}
+
+	_ = m.db.UpdateExecutionStatus(execution.ID, status, &exitCode, &duration)
+
+	if action == "deploy" && status == "success" {
+		_ = m.db.UpdateJobActiveVersion(job.ID, targetVersion)
+		_ = m.db.SetJobDeployed(job.ID, true, targetVersion)
+	} else if action == "run" && (status == "success" || (runErr == nil && exitCode != 10 && exitCode != 11 && exitCode != 12 && exitCode != 20 && exitCode != 21)) {
+		if targetVersion != "" {
+			_ = m.db.UpdateJobActiveVersion(job.ID, targetVersion)
+		}
+		_ = m.db.SetJobDeployed(job.ID, true, targetVersion)
+	} else if action == "undeploy" && status == "success" {
+		_ = m.db.SetJobDeployed(job.ID, false, "")
+	}
+
+	log.Printf("[Execution %s] Finished with status %s (exit code %d, duration %dms)",
+		execution.ID, status, exitCode, duration)
 }
 
 // UndeployJobSync executes undeploy synchronously on the remote execution server

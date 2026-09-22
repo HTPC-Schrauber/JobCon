@@ -1,32 +1,37 @@
 {{define "content"}}
-<!-- Top Telemetry Metrics Bar -->
-<div class="metrics-grid">
-    <div class="metric-card accent-primary">
-        <div>
-            <div class="metric-label">Gesamte Jobs</div>
-            <div class="metric-value">{{.TotalCount}}</div>
+<!-- Operational High-Density Status Strip -->
+<div class="bg-brand-panel border border-brand-border rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs mb-4">
+    <div class="flex items-center gap-6">
+        <div class="flex items-center gap-2">
+            <span class="text-brand-muted uppercase tracking-wider text-[11px] font-mono">Jobs:</span>
+            <span class="font-mono font-semibold text-white">{{.TotalCount}}</span>
         </div>
-        <div class="metric-icon-wrap" style="color: var(--primary);">
-            <svg class="icon icon-md"><use href="#icon-layers"></use></svg>
+        <div class="h-3 w-px bg-brand-border"></div>
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-brand-muted uppercase tracking-wider text-[11px] font-mono">JobServer:</span>
+            <span class="font-mono font-semibold text-white">{{.OnlineServersCount}} / {{.TotalServersCount}} online</span>
+        </div>
+        <div class="h-3 w-px bg-brand-border"></div>
+        <div class="flex items-center gap-2">
+            <span class="text-brand-muted uppercase tracking-wider text-[11px] font-mono">Gruppen:</span>
+            <span class="font-mono text-white">{{len .DistinctGroups}}</span>
+        </div>
+        <div class="h-3 w-px bg-brand-border"></div>
+        <div class="flex items-center gap-2">
+            <span class="text-brand-muted uppercase tracking-wider text-[11px] font-mono">Laufend:</span>
+            <span class="font-mono text-amber-400 font-bold" id="telemetryRunningCount">{{.RunningCount}}</span>
         </div>
     </div>
-    <div class="metric-card accent-cyan">
-        <div>
-            <div class="metric-label">Aktive Server</div>
-            <div class="metric-value" style="color: var(--accent-cyan);">{{len .Servers}}</div>
-        </div>
-        <div class="metric-icon-wrap" style="color: var(--accent-cyan);">
-            <svg class="icon icon-md"><use href="#icon-server"></use></svg>
-        </div>
-    </div>
-    <div class="metric-card accent-green">
-        <div>
-            <div class="metric-label">Gruppen</div>
-            <div class="metric-value" style="color: var(--success);">{{len .DistinctGroups}}</div>
-        </div>
-        <div class="metric-icon-wrap" style="color: var(--success);">
-            <svg class="icon icon-md"><use href="#icon-folder"></use></svg>
-        </div>
+
+    <div class="flex items-center gap-3 text-[11px] text-brand-muted">
+        <span class="hidden sm:inline text-slate-400 bg-brand-surface px-2 py-0.5 rounded border border-brand-border/60">
+            Tipp: <kbd class="font-mono text-amber-400">Strg</kbd> für Mehrfachauswahl, <kbd class="font-mono text-amber-400">Shift</kbd> für Bereich
+        </span>
+        <span id="nexusSyncStatusText">Nexus Sync: <strong class="text-slate-300">{{if .NexusSyncStatus.IsSyncing}}Sync läuft...{{else}}{{.NexusSyncTimeAgo}}{{end}}</strong></span>
+        <button type="button" onclick="triggerNexusSync()" class="p-1 text-brand-muted hover:text-white transition-colors" title="Sync aktualisieren" id="nexusSyncBtn">
+            <svg class="w-3.5 h-3.5 {{if .NexusSyncStatus.IsSyncing}}animate-spin text-amber-400{{end}}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
     </div>
 </div>
 
@@ -70,21 +75,25 @@
         <div class="bulk-toolbar-info">
             <svg class="icon icon-md" style="color: var(--primary);"><use href="#icon-check"></use></svg>
             <span id="bulkSelectedCount">0 ausgewählt</span>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="clearSelection()" style="padding: 2px 8px; font-size: 11px;">
+            <button type="button" class="btn btn-secondary btn-sm action-btn" onclick="clearSelection()" style="padding: 2px 8px; font-size: 11px;">
                 <svg class="icon icon-sm"><use href="#icon-x"></use></svg>
-                {{call $.T "bulk.clear_selection"}}
+                Auswahl aufheben (Esc)
             </button>
         </div>
         <div class="bulk-toolbar-actions">
-            <button type="button" class="btn btn-primary btn-sm" onclick="bulkRunJobs()">
+            <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #f59e0b; margin-right: 6px; user-select: none;">
+                <span>Parallel:</span>
+                <input type="number" id="bulkConcurrencyInput" min="1" max="50" value="{{.DefaultMaxConcurrentJobs}}" title="Gleichzeitig startende Jobs (temporär überschreiben)" style="width: 46px; padding: 2px 6px; background: #0d1117; border: 1px solid #f59e0b; border-radius: 3px; color: #fff; text-align: center; font-size: 12px; font-weight: bold; outline: none;">
+            </label>
+            <button type="button" class="btn btn-primary btn-sm action-btn" onclick="bulkRunJobs()">
                 <svg class="icon icon-sm"><use href="#icon-play"></use></svg>
                 {{call $.T "bulk.start"}}
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="bulkDeployJobs()">
+            <button type="button" class="btn btn-secondary btn-sm action-btn" onclick="bulkDeployJobs()">
                 <svg class="icon icon-sm"><use href="#icon-upload"></use></svg>
                 {{call $.T "bulk.deploy"}}
             </button>
-            <button type="button" class="btn btn-danger btn-sm" onclick="bulkUndeployJobs()">
+            <button type="button" class="btn btn-danger btn-sm action-btn" onclick="bulkUndeployJobs()">
                 <svg class="icon icon-sm"><use href="#icon-trash"></use></svg>
                 {{call $.T "bulk.undeploy"}}
             </button>
@@ -99,7 +108,7 @@
         <input type="hidden" name="sort_order" id="sortOrderInput" value="{{.SortOrder}}">
         <input type="hidden" name="group_by" id="groupByInput" value="{{.GroupBy}}">
 
-        <div style="overflow-x: auto;">
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -178,7 +187,12 @@
                             <tr class="job-row" id="job-row-{{.ID}}" data-job-id="{{.ID}}" onclick="handleRowClick(event, '{{.ID}}')">
                                 <td>
                                     <div style="display: flex; align-items: center; gap: 8px;">
-                                        {{if .IsDeployed}}
+                                        {{if eq .LastRunStatus "running"}}
+                                            <span class="relative flex h-2 w-2 shrink-0">
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                                <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                            </span>
+                                        {{else if .IsDeployed}}
                                             <span class="status-dot status-dot-deployed" title="{{call $.T "status.deployed"}}{{if .DeployedVersion}} (v{{.DeployedVersion}}){{end}}"></span>
                                         {{else}}
                                             <span class="status-dot status-dot-undeployed" title="{{call $.T "status.not_deployed"}}"></span>
@@ -205,14 +219,26 @@
                                 <td>
                                     {{if .LastRunStatus}}
                                         <div style="display: flex; align-items: center; gap: 6px;">
-                                            <span class="badge {{if eq .LastRunStatus "success"}}badge-success{{else if eq .LastRunStatus "failed"}}badge-danger{{else if eq .LastRunStatus "running"}}badge-running{{else}}badge-neutral{{end}}">
-                                                {{.LastRunStatus}}
-                                            </span>
-                                            {{if .LastRunID}}
-                                                <button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
-                                                    <svg class="icon icon-sm"><use href="#icon-file-text"></use></svg>
-                                                    Log
-                                                </button>
+                                            {{if eq .LastRunStatus "running"}}
+                                                <span class="badge badge-running" style="display: inline-flex; align-items: center; gap: 4px;">
+                                                    <svg class="icon icon-sm icon-spin" viewBox="0 0 24 24"><use href="#icon-loader"></use></svg>
+                                                    RUNNING
+                                                </span>
+                                                {{if .LastRunID}}
+                                                    <button type="button" class="action-btn text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 text-[11px] transition-colors underline" style="background: none; border: none; cursor: pointer; padding: 0;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
+                                                        Live-Log
+                                                    </button>
+                                                {{end}}
+                                            {{else}}
+                                                <span class="badge {{if eq .LastRunStatus "success"}}badge-success{{else if eq .LastRunStatus "failed"}}badge-danger{{else}}badge-neutral{{end}}">
+                                                    {{.LastRunStatus}}
+                                                </span>
+                                                {{if .LastRunID}}
+                                                    <button type="button" class="btn btn-secondary btn-sm action-btn" style="padding: 2px 6px; font-size: 11px;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
+                                                        <svg class="icon icon-sm"><use href="#icon-file-text"></use></svg>
+                                                        Log
+                                                    </button>
+                                                {{end}}
                                             {{end}}
                                         </div>
                                         {{if .LastRunStartedAt}}
@@ -225,7 +251,7 @@
                                     {{end}}
                                 </td>
                                 <td style="text-align: right;" onclick="event.stopPropagation()">
-                                    <button type="button" class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openSidepanel('{{.ID}}')">
+                                    <button type="button" class="btn btn-secondary btn-sm action-btn" onclick="event.stopPropagation(); openSidepanel('{{.ID}}')">
                                         <svg class="icon icon-sm"><use href="#icon-file-text"></use></svg>
                                         {{call $.T "actions.details"}}
                                     </button>
@@ -796,8 +822,8 @@ function getVisibleJobRows() {
 }
 
 function handleRowClick(event, jobId) {
-    // If click originated from button, link, or input inside row, don't trigger selection
-    if (event.target.closest('button, a, input, select, textarea')) {
+    // If click originated from button, link, input, or .action-btn inside row, don't trigger selection
+    if (event.target.closest('button, a, input, select, textarea, .action-btn')) {
         return;
     }
 
@@ -819,6 +845,7 @@ function handleRowClick(event, jobId) {
             selectedJobIDs.add(rowIds[i]);
         }
     } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl/Cmd + click toggles clicked item on and off
         if (selectedJobIDs.has(jobId)) {
             selectedJobIDs.delete(jobId);
         } else {
@@ -826,10 +853,15 @@ function handleRowClick(event, jobId) {
         }
         lastClickedJobID = jobId;
     } else {
-        // Single click: select ONLY this job
-        selectedJobIDs.clear();
-        selectedJobIDs.add(jobId);
-        lastClickedJobID = jobId;
+        // Single click: if already selected alone, toggle off; otherwise select only this job
+        if (selectedJobIDs.has(jobId) && selectedJobIDs.size === 1) {
+            selectedJobIDs.clear();
+            lastClickedJobID = null;
+        } else {
+            selectedJobIDs.clear();
+            selectedJobIDs.add(jobId);
+            lastClickedJobID = jobId;
+        }
     }
 
     updateSelectionUI();
@@ -846,8 +878,10 @@ function updateSelectionUI() {
     rows.forEach(r => {
         const jid = r.dataset.jobId;
         if (selectedJobIDs.has(jid)) {
+            r.classList.add('is-selected');
             r.classList.add('selected');
         } else {
+            r.classList.remove('is-selected');
             r.classList.remove('selected');
         }
     });
@@ -856,11 +890,17 @@ function updateSelectionUI() {
     const countEl = document.getElementById('bulkSelectedCount');
     if (selectedJobIDs.size > 0) {
         toolbar.style.display = 'flex';
-        countEl.innerText = window.t('bulk.selected', selectedJobIDs.size);
+        countEl.innerText = (window.t ? window.t('bulk.selected', selectedJobIDs.size) : null) || (selectedJobIDs.size + ' ausgewählt');
     } else {
         toolbar.style.display = 'none';
     }
 }
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        clearSelection();
+    }
+});
 
 function bulkRunJobs() {
     if (selectedJobIDs.size === 0) return;
@@ -872,9 +912,62 @@ function bulkRunJobs() {
     inp.name = 'job_ids';
     inp.value = Array.from(selectedJobIDs).join(',');
     form.appendChild(inp);
+
+    const concInput = document.getElementById('bulkConcurrencyInput');
+    if (concInput && concInput.value) {
+        const concHidden = document.createElement('input');
+        concHidden.type = 'hidden';
+        concHidden.name = 'concurrency';
+        concHidden.value = concInput.value;
+        form.appendChild(concHidden);
+    }
+
     document.body.appendChild(form);
     form.submit();
 }
+
+function triggerNexusSync() {
+    const btn = document.getElementById('nexusSyncBtn');
+    const svg = btn ? btn.querySelector('svg') : null;
+    const textEl = document.getElementById('nexusSyncStatusText');
+    if (svg) svg.classList.add('animate-spin', 'text-amber-400');
+    if (textEl) textEl.innerHTML = 'Nexus Sync: <strong class="text-amber-400">Sync läuft...</strong>';
+
+    fetch('/api/v1/nexus/sync', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            pollNexusSyncStatus();
+        })
+        .catch(err => {
+            console.error('Nexus sync error:', err);
+            if (svg) svg.classList.remove('animate-spin', 'text-amber-400');
+        });
+}
+
+function pollNexusSyncStatus() {
+    const pollInterval = setInterval(() => {
+        fetch('/api/v1/nexus/sync/status')
+            .then(r => r.json())
+            .then(status => {
+                const svg = document.querySelector('#nexusSyncBtn svg');
+                const textEl = document.getElementById('nexusSyncStatusText');
+                if (!status.is_syncing) {
+                    clearInterval(pollInterval);
+                    if (svg) svg.classList.remove('animate-spin', 'text-amber-400');
+                    if (textEl) {
+                        textEl.innerHTML = 'Nexus Sync: <strong class="text-slate-300">gerade eben</strong>';
+                    }
+                }
+            })
+            .catch(() => clearInterval(pollInterval));
+    }, 2000);
+}
+
+{{if .NexusSyncStatus.IsSyncing}}
+document.addEventListener('DOMContentLoaded', () => {
+    pollNexusSyncStatus();
+});
+{{end}}
 
 function bulkDeployJobs() {
     if (selectedJobIDs.size === 0) return;

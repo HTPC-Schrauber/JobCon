@@ -223,6 +223,78 @@ func (c *Client) SearchComponentsAdvanced(ctx context.Context, repository, group
 	return allComponents, nil
 }
 
+// FetchAllComponents queries all components for a given repository by following continuationTokens.
+func (c *Client) FetchAllComponents(ctx context.Context, repository string) ([]Component, error) {
+	if c.BaseURL == "" {
+		return nil, fmt.Errorf("nexus base_url is not configured")
+	}
+
+	endpoint := fmt.Sprintf("%s/service/rest/v1/components", c.BaseURL)
+	var allComponents []Component
+	var continuationToken *string
+	maxPages := 2000
+
+	for page := 0; page < maxPages; page++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		params := url.Values{}
+		if repository != "" {
+			params.Set("repository", repository)
+		}
+		if continuationToken != nil && *continuationToken != "" {
+			params.Set("continuationToken", *continuationToken)
+		}
+
+		fetchURL := fmt.Sprintf("%s?%s", endpoint, params.Encode())
+		req, err := http.NewRequestWithContext(ctx, "GET", fetchURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if c.Username != "" && c.Password != "" {
+			req.SetBasicAuth(c.Username, c.Password)
+		}
+
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode == http.StatusNotFound && page == 0 && endpoint != fmt.Sprintf("%s/service/rest/v1/search", c.BaseURL) {
+			_ = resp.Body.Close()
+			endpoint = fmt.Sprintf("%s/service/rest/v1/search", c.BaseURL)
+			page--
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("nexus returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+		}
+
+		var res searchResponse
+		err = json.NewDecoder(resp.Body).Decode(&res)
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		allComponents = append(allComponents, res.Items...)
+
+		if res.ContinuationToken == nil || *res.ContinuationToken == "" {
+			break
+		}
+		continuationToken = res.ContinuationToken
+	}
+
+	return allComponents, nil
+}
+
 // BrowseTree groups components by Group -> Artifact -> Versions for hierarchical UI picker (backwards compatible)
 func (c *Client) BrowseTree(ctx context.Context, repository, groupFilter, search string) ([]GroupNode, error) {
 	return c.BrowseTreeAdvanced(ctx, repository, groupFilter, "", search)

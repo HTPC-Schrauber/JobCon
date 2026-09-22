@@ -88,9 +88,22 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     PRIMARY KEY (user_id, key)
 );
 
+CREATE TABLE IF NOT EXISTS nexus_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(repository, group_id, artifact_id, version)
+);
+
 CREATE INDEX IF NOT EXISTS idx_executions_job_id ON executions(job_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_group_id ON jobs(group_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_repo_group ON nexus_artifacts(repository, group_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_repo_artifact ON nexus_artifacts(repository, artifact_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_search ON nexus_artifacts(repository, group_id, artifact_id);
 `
 
 func (db *DB) Migrate() error {

@@ -1,9 +1,31 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - JobCon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                DEFAULT: '#f59e0b',
+                hover: '#d97706',
+                surface: '#0d1117',
+                panel: '#161b22',
+                card: '#1c2128',
+                border: '#30363d',
+                muted: '#8b949e',
+                text: '#e6edf3'
+              }
+            }
+          }
+        }
+      }
+    </script>
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/htmx.min.js"></script>
 </head>
@@ -193,11 +215,13 @@
     };
     </script>
 
-    <header class="navbar" style="{{if .EnvName}}border-top: 3px solid {{.EnvColor}};{{end}}">
+    <div class="top-accent-line"></div>
+
+    <header class="navbar" style="{{if .EnvName}}border-top: 3px solid {{if .EnvColor}}{{.EnvColor}}{{else}}#f59e0b{{end}};{{end}}">
         <div class="nav-section-left">
             <a href="/" class="brand-wrapper">
                 <div class="brand-mark">
-                    <svg class="icon icon-md" style="stroke: #0f0f0f; stroke-width: 2.5;"><use href="#icon-zap"></use></svg>
+                    ⚡
                 </div>
                 <div class="brand-text-block">
                     <span class="brand-title">JobCon</span>
@@ -205,7 +229,7 @@
                 </div>
             </a>
             {{if .EnvName}}
-                <span class="env-badge" style="background-color: {{.EnvColor}}; color: {{.EnvTextColor}};" title="Environment: {{.EnvName}}">
+                <span class="env-badge" style="{{if .EnvColor}}background-color: {{.EnvColor}}; color: {{.EnvTextColor}};{{else}}background: #1c2128; color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);{{end}}" title="Environment: {{.EnvName}}">
                     {{.EnvName}}
                 </span>
             {{end}}
@@ -244,12 +268,14 @@
                     </a>
                     <span class="nav-divider">|</span>
                 {{end}}
-                <span class="user-profile-badge">
-                    <svg class="icon icon-sm"><use href="#icon-users"></use></svg>
-                    {{.User.DisplayName}} ({{.User.Role}})
+                <span class="user-profile-badge" style="display: inline-flex; align-items: center; gap: 6px;">
+                    <span style="width: 22px; height: 22px; border-radius: 50%; background: #30363d; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.25);">
+                        {{if .User.DisplayName}}{{slice .User.DisplayName 0 1}}{{else}}U{{end}}
+                    </span>
+                    <span>{{.User.DisplayName}} ({{.User.Role}})</span>
                 </span>
                 <form action="/logout" method="POST" style="display:inline; margin: 0;">
-                    <button type="submit" class="btn btn-secondary btn-sm">
+                    <button type="submit" class="btn btn-secondary btn-sm" title="{{call $.T "nav.logout"}}">
                         <svg class="icon icon-sm"><use href="#icon-log-out"></use></svg>
                         {{call $.T "nav.logout"}}
                     </button>

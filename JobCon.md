@@ -20,7 +20,21 @@
 * **Integrierter Einstellungsdialog (Web-UI):**
   * Verwaltung von Benutzern (Anlage, Rollen, Passwörter).
   * Verwaltung von Execution Servern (SSH-Ziele, Verbindungstests).
-  * Globale Einstellungen (Nexus, Aufbewahrungsfristen, LDAP-Konfiguration).
+  * Globale Einstellungen (Nexus, Synchronisations-Intervall, Parallelitätsgrenzen, Aufbewahrungsfristen, LDAP-Konfiguration).
+* **Lokaler Nexus-Cache & Hintergrund-Synchronisation:**
+  * Caching aller Nexus-Artefakte in der lokalen SQLite-Datenbank.
+  * Periodische Hintergrund-Synchronisation in einstellbarem Zeitintervall und manuell per Knopfdruck / API.
+  * Blitzschnelle (< 5ms) und ausfallsichere Suche ohne Last auf großen Nexus-Servern.
+* **Warteschlange & Parallelitätssteuerung (Queue & Concurrency):**
+  * Schutz vor Server-Überlastung bei Massenstarts durch globale Obergrenze (`max_concurrent_jobs`).
+  * Automatische Warteschlange: Beendete Jobs machen unmittelbar Platz für den nächsten anstehenden Job.
+  * Ad-hoc-Übersteuerung der Parallelität direkt neben dem Start-Button in der UI.
+* **Modernes High-Density Telemetrie-UI:**
+  * Kompaktes Status-Band (Operational High-Density Status Strip) anstelle sperriger Kacheln.
+  * Warmes bernsteinfarbenes Farbschema (Warm Amber `#f59e0b`).
+  * Fixierte Spaltenüberschriften (Sticky Headers) beim vertikalen Scrollen.
+  * Blinkender bernsteinfarbener Punkt (`animate-ping`) vor laufenden Jobs mit direktem Live-Log-Link.
+  * Komfortable Zeilenauswahl ohne Checkboxen (Klick toggelt, Strg+Klick Mehrfachauswahl, Shift+Klick Bereich, Esc leert).
 * **Echtzeit-Transparenz:** Live-Streaming von `stdout` und `stderr` via Server-Sent Events (SSE) in eine moderne HTMX-Webkonsole.
 * **Automatisierung:** Schlanke REST-API mit API-Bearer-Tokens für CI/CD (Jenkins).
 * **Minimalistischer Footprint & saubere Speicherung:** 
@@ -392,10 +406,24 @@ CREATE TABLE user_preferences (
     PRIMARY KEY (user_id, key)
 );
 
--- Performance-Indizes für Skalierung auf 1.400+ Jobs
+-- Nexus Artefakte (Lokaler Cache für blitzschnelle Suche)
+CREATE TABLE nexus_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repository_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(repository_id, group_id, artifact_id, version)
+);
+
+-- Performance-Indizes für Skalierung auf 1.400+ Jobs & Nexus Cache
 CREATE INDEX idx_jobs_group_id ON jobs(group_id);
 CREATE INDEX idx_executions_job_id ON executions(job_id);
 CREATE INDEX idx_executions_started_at ON executions(started_at DESC);
+CREATE INDEX idx_nexus_repo_group ON nexus_artifacts(repository_id, group_id);
+CREATE INDEX idx_nexus_repo_artifact ON nexus_artifacts(repository_id, artifact_id);
+CREATE INDEX idx_nexus_search ON nexus_artifacts(repository_id, group_id, artifact_id);
 ```
 
 ---
@@ -405,27 +433,44 @@ CREATE INDEX idx_executions_started_at ON executions(started_at DESC);
 Das UI wird via Go `embed.FS` vollständig in das Single-Binary kompiliert und benötigt keine externen Assets oder CDNs.
 
 ### 7.1 Hauptbereiche der Web-Oberfläche
-1. **Umgebungs-Kennzeichnung (Environment Badge):**
+1. **Umgebungs-Kennzeichnung & Farbkonzept (Warm Amber Theme):**
    * **Prominenter Indikator:** Eindeutige Anzeige der aktuellen Umgebung (z. B. `DEV`, `TEST`, `PROD`) in der Navigationsleiste und auf der Login-Seite.
-   * **Farbkodierung:** Konfigurierbar in `config.yaml` (`name`, `color`, `text_color`). Ein farblicher Akzentstreifen am oberen Rand signalisiert sofort, auf welcher Instanz gearbeitet wird.
-2. **Jobs Dashboard (`/`):**
+   * **Farbkodierung:** Konfigurierbar in `config.yaml` (`name`, `color`, `text_color`). Ein farblicher Akzentstreifen am oberen Rand (`top-accent-line`) signalisiert sofort, auf welcher Instanz gearbeitet wird.
+   * **Farbschema:** Modernes, augenschonendes High-Density-Design im Pro-Audio-Stil mit warmen Bernstein-Akzenten (`#f59e0b`, `#0d1117`, `#161b22`, `#1c2128`, `#30363d`).
+   * **Benutzer-Avatar:** Initialen-Badge (z. B. `MO`) direkt neben Benutzername und Rolle.
+2. **Operational High-Density Status Strip:**
+   * Kompaktes Statusband im Kopfbereich anstelle sperriger Kacheln:
+     * **Jobs:** Gesamtzahl aller konfigurierten Talend Jobs.
+     * **JobServer:** Anzahl aktiver Knoten (`online / total`) mit grün pulsierendem Statuspunkt.
+     * **Gruppen:** Anzahl unterschiedlicher Gruppen (GroupID).
+     * **Laufend:** Anzahl aktiver Läufe, auffällig in Amber hervorgehoben.
+     * **Tipp:** Tastatur-Hinweis (`Strg` für Mehrfachauswahl, `Shift` für Bereich).
+     * **Nexus Sync:** Statusanzeige („vor X Min.“ / „Sync läuft...“) mit Sofort-Aktualisierungsbutton (drehendes Icon bei aktivem Lauf).
+3. **Jobs Dashboard (`/`):**
    * **Skalierbar für 1.400+ Jobs:** Vollständig serverseitige Paginierung (10, 25, 50, 100, 1.000 Einträge), Volltextsuche und Filterung nach `group_id` und Server direkt über integrierte Spaltenfilter (`.table-filter-row`).
    * **Serverseitige Sortierung:** Sortierbar nach Name, Gruppe, Zielserver, aktiver Version und Zeitpunkt des letzten Laufs.
-   * **Gruppierungsansicht:** Checkbox „Nach Gruppen bündeln“ zur optischen und logischen Clusterung nach Maven `GroupId` (mit Beibehaltung der internen Sortierung innerhalb der Gruppen).
-   * **Tastatur- & Maus-Mehrfachauswahl (Bulk Actions):**
-     * **Klick:** Selektiert eine einzelne Zeile.
-     * **Strg / Cmd + Klick:** Fügt Zeilen zur Auswahl hinzu oder entfernt sie (Toggle).
-     * **Shift + Klick:** Bereichsauswahl aller Zeilen zwischen der letzten und der angeklickten Zeile.
-     * *Hinweis:* Reine Zeilenklicks öffnen nicht mehr das Sidepanel, sondern steuern die Auswahl. Keine störenden Checkboxen in der Tabelle.
-   * **Dedizierter „Details“-Button:** Öffnet das Slide-Out-Sidepanel für die jeweilige Zeile.
-   * **Bulk-Aktionsleiste:** Erscheint dynamisch bei markierten Jobs über der Tabelle mit Anzeige der selektierten Anzahl:
-     * `▶ Start`: Startet alle markierten Jobs sofort direkt ohne modale Zwischenabfrage.
-     * `🚀 Deploy`: Stößt das Deployment der markierten Jobs an.
-     * `🗑️ Undeploy`: Entfernt die markierten Jobs von den Zielservern.
-     * `Auswahl aufheben`: Hebt die Zeilenselektion auf.
+   * **Fixierte Spaltenüberschriften (Sticky Headers):**
+     * Beim vertikalen Scrollen bleiben Spaltenköpfe (`thead th`) und Filterzeile oben fixiert (`.table-scroll-container`), sodass Orientierung und Filterung bei großen Listen jederzeit erhalten bleiben.
+   * **Pulsierender Indikator für laufende Jobs:**
+     * Bei laufenden Jobs (`status: running`) pulsiert links neben dem Jobnamen ein animierter bernsteinfarbener Punkt mit Ring-Animation (`animate-ping`).
+     * In der Spalte „Letzter Lauf“ signalisiert ein amberfarbenes `RUNNING`-Badge mit rotierendem Spinner den Lauf, ergänzt durch einen direkten Link `Live-Log` zum sofortigen Öffnen der Konsolenausgabe.
+   * **Optimierte Zeilenauswahl & Deselektierung (ohne Checkboxen):**
+     * **Klick auf eine Zeile:** Wählt den Job exklusiv aus.
+     * **Erneuter Klick auf denselben Job:** Hebt die Auswahl wieder auf (Deselektion).
+     * **Strg / Cmd + Klick:** Schaltet den angeklickten Job gezielt an oder aus (Toggle).
+     * **Shift + Klick:** Wählt einen zusammenhängenden Zeilenbereich aus.
+     * **Esc-Taste oder „Auswahl aufheben“:** Setzt die gesamte Zeilenauswahl zurück.
+     * Klicks auf Aktions-Buttons (Details, Log, Live-Log) lösen keine Selektion aus (`.action-btn`).
+   * **Bulk-Aktionsleiste mit Inline-Parallelitätssteuerung:**
+     * Erscheint dynamisch bei selektierten Jobs über der Tabelle:
+       * `Parallel: [ N ]`: Eingabefeld zur temporären Übersteuerung des Parallelitätslimits für diesen spezifischen Startlauf.
+       * `▶ Starten`: Startet alle markierten Jobs über die Semaphore-Warteschlange.
+       * `🚀 Deployen`: Stößt das Deployment der markierten Jobs an.
+       * `🗑️ Undeployen`: Entfernt die markierten Jobs von den Zielservern.
+       * `Auswahl aufheben (Esc)`: Setzt die Selektion zurück.
    * **Deployment-Statusindikator:** Farbiger Punkt links neben dem Jobnamen (grün = auf Zielserver deployed, grau = nicht deployed) basierend auf `is_deployed`.
    * **Letzter Lauf:** Status-Badge, Startzeitpunkt, Dauer und Direkt-Icon 📄 zum Öffnen des Logs.
-3. **Slide-Out Sidepanel & Log-Großansicht:**
+4. **Slide-Out Sidepanel & Log-Großansicht:**
    * Fährt bei Klick auf „Details“ von rechts über den Bildschirm.
    * Zeigt alle Job-Metadaten (Server, Maven-Koordinaten, Repository, Context, Concurrency, Retention, Deployment-Status, `.env`-Pfad).
    * Ausführungshistorie der letzten Läufe für diesen spezifischen Job.
@@ -433,38 +478,43 @@ Das UI wird via Go `embed.FS` vollständig in das Single-Binary kompiliert und b
    * **Button „⛶ Großansicht“:** Öffnet das vollständige Log in einem großen modalen Dialog mit Kopierfunktion („📋 Kopieren“) und Link zur Vollbild-Live-Konsole.
    * Schnellaktionen im Header: [Starten] (öffnet modalen Parameter-Dialog), [Deployen], [Undeployen], [Bearbeiten], [Löschen].
    * **Lösch-Sicherheitsabfrage:** Ist ein Job noch deployed, fragt JobCon beim Löschen, ob die Artefakte auch vom Zielserver entfernt werden sollen (`undeploy_server=true`).
-4. **Mehrsprachigkeit (i18n):**
+5. **Mehrsprachigkeit (i18n):**
    * Vollständige Internationalisierung (Englisch als Default, Deutsch integriert).
    * Sprachumschaltung direkt im Header-Menü für jeden Benutzer.
    * Gespeichert in der Datenbank (`user_preferences`) und im Fallback-Cookie (`jobcon_lang`).
    * Erweiterbar über externe Übersetzungsdateien (`locales_dir`).
    * Integrierte JavaScript-Hilfsfunktion `window.t(key, ...args)`.
-5. **Nexus 3 Tree-View Artefakt-Browser:**
+6. **Nexus 3 Tree-View Artefakt-Browser (Lokaler Cache):**
    * Beim Anlegen eines neuen Jobs: Button „📦 Aus Nexus auswählen“.
+   * Greift transparent auf die lokale SQLite-Tabelle `nexus_artifacts` zu – extrem performant (< 5ms) und unabhängig von der Latenz oder Auslastung des Nexus-Servers.
    * Getrennte Eingabefelder für `GroupId` und `ArtifactId` zur präzisen Suche.
-   * Schutz vor Race Conditions durch `AbortController` und Request-Sequenzzähler.
    * Hierarchische Baumansicht (`GroupId` -> `ArtifactId` -> `Versions-Badges`).
    * Übernimmt gewählte Koordinaten direkt in das Anlageformular.
-6. **Globale Ausführungshistorie (`/executions`):**
+7. **Globale Ausführungshistorie (`/executions`):**
    * Dedizierte Übersichtsseite aller vergangenen und laufenden Ausführungen.
    * Schnellfilter nach Status (`Alle`, `Läuft`, `Erfolg`, `Fehler`, `Abgebrochen`).
-7. **Live-Konsole (`/executions/{id}`):**
+8. **Live-Konsole (`/executions/{id}`):**
    * SSE-Streaming von Konsolen-Logs in Echtzeit.
    * Suchfeld, Auto-Scroll-Pausierung und „Abort Job“-Button.
-8. **Einstellungsdialog (`/settings` - nur für Rolle `admin`):**
+9. **Einstellungsdialog (`/settings` - nur für Rolle `admin`):**
    * **Reiter „Execution Server“ (`/settings/servers`):**
-     * **Server-Sidepanel:** Klick auf eine Serverzeile öffnet ein interaktives Sidepanel mit Statusdiagnose (Erreichbarkeit, Verzeichnisse, installierte Scripte, `.env`-Pfad) und Liste der zugeordneten Jobs.
-     * **Konfigurierbare Verzeichnisse & Release-Retention:** `jobs_dir` (Default: `/opt/talend/jobs`), `scripts_dir` (Default: `/opt/talend/scripts`), `env_file` und `keep_releases` pro Server anpassbar.
-     * **Automatisches SSH-Setup („Scripte bereitstellen“):** Legt Zielverzeichnisse per SSH an (`mkdir -p`) und installiert die eingebetteten Controller-Scripte (`jobcon_ctl.sh`, `run_job.sh`) mit Rechten 0755.
-     * **Sicheres Löschen:** Prüft verknüpfte Jobs; erfordert bei vorhandenen Jobs die Auswahl eines Zielservers zur atomaren Umschaltung vor dem Löschen.
-     * **Button „Verbindung testen“:** Prüft SSH-Erreichbarkeit, Latenz und Vorhandensein der Zielverzeichnisse/Scripte.
+     * **Server-Sidepanel:** Statusdiagnose, Verzeichnisse, installierte Scripte, `.env`-Pfad und Job-Liste.
+     * **Konfigurierbare Verzeichnisse & Release-Retention:** `jobs_dir`, `scripts_dir`, `env_file`, `keep_releases`.
+     * **Automatisches SSH-Setup („Scripte bereitstellen“):** Legt Zielverzeichnisse per SSH an und installiert `jobcon_ctl.sh` und `run_job.sh` mit 0755.
+     * **Sicheres Löschen:** Migriert verknüpfte Jobs atomar auf alternative Zielserver.
+     * **Button „Verbindung testen“:** Prüft SSH-Erreichbarkeit, Latenz und Scripte.
    * **Reiter „Benutzerverwaltung“ (`/settings/users`):**
      * Benutzer anlegen, Passwörter ändern (`bcrypt`), Rollen zuweisen (`admin`, `operator`, `viewer`).
    * **Reiter „System & Tokens“ (`/settings/system`):**
-     * **Nexus 3 Anbindung:** Basis-URL, Benutzername und Passwort frei bearbeitbar und geschützt gespeichert.
-     * **Button „⚡ Verbindung testen“:** Prüft Erreichbarkeit und Authentifizierung gegen die Nexus-API.
-     * **Multi-Repository-Verwaltung:** Beliebig viele Repositories (z. B. `releases`, `snapshots`) anlegen, umbenennen oder löschen.
-     * **Log-Aufbewahrung:** Manuelle Speicherbereinigung („🗑️ Alte Logs jetzt bereinigen“) mit Ein-Klick-Löschung überzähliger Logdateien.
+     * **Nexus 3 Grundkonfiguration:** Basis-URL, Benutzername und Passwort mit Verbindungstest.
+     * **Multi-Repository-Verwaltung:** Repositories anlegen, umbenennen oder löschen.
+     * **Nexus Synchronisation & Lokaler Cache:**
+       * Anzeige des aktuellen Sync-Status (Zuletzt synchronisiert, Anzahl gecachter Artefakte).
+       * Button „Nexus jetzt synchronisieren“ zum sofortigen manuellen Abgleich.
+       * Einstellbares Synchronisationsintervall in Minuten (Default: 60 Minuten).
+     * **Job-Ausführung & Warteschlange:**
+       * Konfigurierbare Standard-Parallelität (`max_concurrent_jobs`, Default: 2) für Bulk-Starts.
+     * **Log-Aufbewahrung:** Manuelle Speicherbereinigung („🗑️ Alte Logs jetzt bereinigen“).
      * **CI/CD API Tokens:** Erstellen und Widerrufen von Bearer-Tokens für Jenkins.
 
 ---
@@ -482,16 +532,18 @@ Authentifizierung via `Authorization: Bearer <API_TOKEN>` oder HTTP BasicAuth.
 * **`POST /api/v1/jobs/{id}/deploy`** – Deployt Version auf Zielserver (`"set_active": true`).
 * **`POST /api/v1/jobs/{id}/undeploy`** – Entfernt Versionen und Symlinks vom Zielserver.
 * **`POST /api/v1/jobs/{id}/run`** – Job ausführen. Parameter: `?wait=true` für synchrone Jenkins-Pipelines.
-* **`POST /api/v1/jobs/bulk/run`** – Führt mehrere Jobs gleichzeitig aus (`{"job_ids": ["job1", "job2"]}`).
+* **`POST /api/v1/jobs/bulk/run`** – Führt mehrere Jobs über die Semaphore-Warteschlange aus. Unterstützt optionalen Parameter `concurrency` (z. B. `{"job_ids": ["job1", "job2"], "concurrency": 2}`).
 * **`POST /api/v1/jobs/bulk/deploy`** – Deployt mehrere Jobs gleichzeitig.
 * **`POST /api/v1/jobs/bulk/undeploy`** – Entfernt mehrere Jobs gleichzeitig von Zielservern.
 * **`POST /api/v1/executions/{id}/abort`** – Bricht laufende Ausführung per SSH-Prozessgruppen-Signal ab.
 * **`GET /api/v1/executions/{id}/logs`** – Roh-Text (`?format=raw`) oder SSE-Stream.
 
-### 8.2 Nexus Integration (Backend Proxy)
+### 8.2 Nexus Integration & Lokaler Cache
 * **`GET /api/v1/nexus/repositories`** – Liste konfigurierter Repositories aus Settings oder YAML.
 * **`POST /api/v1/nexus/test`** – Prüft Verbindung und Anmeldedaten gegen die Nexus 3 REST-API.
-* **`GET /api/v1/nexus/search`** – Durchsucht Nexus nach Gruppen, Komponenten und Versionen (`repo`, `group`, `query`).
+* **`POST /api/v1/nexus/sync`** – Startet die asynchrone Hintergrund-Synchronisation aller konfigurierten Repositories in die lokale SQLite-Datenbank.
+* **`GET /api/v1/nexus/sync/status`** – Liefert aktuellen Sync-Status (`status`, `is_syncing`, `last_synced_at`, `item_count`, `last_error`, `interval_minutes`).
+* **`GET /api/v1/nexus/search`** – Durchsucht blitzschnell den lokalen SQLite-Cache nach Gruppen, Komponenten und Versionen (`repo`, `group`, `query`).
 
 ### 8.3 Administration, Storage & Benutzereinstellungen
 * **`GET /api/v1/servers` & `POST /api/v1/servers`** (Server CRUD & Verbindungstest).
@@ -641,6 +693,13 @@ WantedBy=multi-user.target
    * Dynamische `.env`-Sourcing auf Zielsystemen pro Server und pro Job.
    * Vollständige Mehrsprachigkeit (i18n, DE/EN) mit Header-Sprachwechsler.
    * Stabiler, racy-sicherer Nexus-Artefakt-Picker mit getrennten GroupId/ArtifactId-Feldern.
-9. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
+9. **Phase 5e: High-Density UI, Nexus Local DB Cache & Concurrency Queue [Abgeschlossen]**
+   * **Operational High-Density Status Strip:** Kompaktes Statusband im Kopfbereich (Jobs, Online-Server mit Puls-Dot, Gruppen, laufende Läufe in Amber, Tastaturtipp und Nexus Sync-Status mit Sofort-Aktualisierungs-Button).
+   * **Sticky Headers:** Fixierte Spaltenköpfe (`thead th`) und Filterzeile beim vertikalen Scrollen großer Joblisten (`.table-scroll-container`).
+   * **Blinkender bernsteinfarbener Punkt:** Animierter Radar-Puls (`animate-ping`) vor Jobnamen bei Status `running`, amberfarbenes `RUNNING`-Badge und direkter `Live-Log`-Link.
+   * **Verbesserte Zeilenauswahl & Deselektion:** Einzelauswahl mit Deselektion bei erneutem Klick auf denselben Job; Mehrfachauswahl via Strg/Cmd+Klick Toggle; Shift+Klick Bereichsauswahl; Esc-Taste oder Button zum Leeren; Klicks auf Aktions-Buttons lösen keine Zeilenauswahl aus.
+   * **Nexus Local DB Cache & Background Syncer:** Lokale SQLite-Tabelle `nexus_artifacts` mit Indizes; periodischer Hintergrund-Syncer (`Syncer`) mit konfigurierbarem Intervall; manuelle Sofort-Synchronisation via UI und API (`POST /api/v1/nexus/sync`); Artefakt-Suche (< 5ms) ohne Last auf Nexus.
+   * **Warteschlange & Parallelität:** Globale Standard-Parallelität (`max_concurrent_jobs`) in System-Einstellungen; Queue-Worker-Pool startet bis zu $N$ Jobs parallel und lässt folgende automatisch nachrücken; temporäre Übersteuerung direkt in der Bulk-Toolbar (`Parallel: [ N ]`).
+10. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
    * Implementierung des LDAP-Authenticators (`go-ldap/ldap/v3`).
    * Reverse Proxy & TLS-Verifikation, systemd Deployment.
