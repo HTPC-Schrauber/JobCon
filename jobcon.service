@@ -1,0 +1,28 @@
+[Unit]
+Description=JobCon - Lightweight Job Deployment & Execution Engine
+Documentation=https://github.com/HTPC-Schrauber/JobCon
+After=network.target
+
+[Service]
+Type=simple
+User=jobcon
+Group=jobcon
+WorkingDirectory=/opt/jobcon
+ExecStart=/opt/jobcon/jobcon --config /opt/jobcon/config.yaml
+Restart=always
+RestartSec=5s
+LimitNOFILE=65536
+
+# Environment configuration
+Environment=JOBCON_PORT=8080
+# Optional environment file:
+# EnvironmentFile=-/etc/default/jobcon
+
+# Hardening
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

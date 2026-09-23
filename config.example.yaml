@@ -53,6 +53,9 @@ storage:
   logs_dir: "./data/logs"
   compress_completed: true
 
+scripts:
+  dir: "./scripts" # Verzeichnis mit Zielserver-Skripten (jobcon_ctl.sh, run_job.sh)
+
 nexus:
   base_url: "https://nexus.intern.firma.de/repository"
   username: "nexus_talend_reader"

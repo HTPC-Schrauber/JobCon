@@ -1,9 +1,5 @@
 package scripts
 
-import _ "embed"
-
-//go:embed jobcon_ctl.sh
-var JobconCtlSh []byte
-
-//go:embed run_job.sh
-var RunJobSh []byte
+// Package scripts contains target execution scripts (e.g. jobcon_ctl.sh, run_job.sh)
+// for target execution nodes. These scripts are deployed externally and are read
+// dynamically from the configured scripts directory at runtime.

@@ -1,0 +1,32 @@
+# ==============================================================================
+# JobCon Docker Compose Configuration
+# ==============================================================================
+services:
+  jobcon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jobcon:latest
+    container_name: jobcon
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - JOBCON_BIND=0.0.0.0
+      - JOBCON_PORT=8080
+      - JOBCON_DB_PATH=/app/data/jobcon.db
+      - JOBCON_LOGS_DIR=/app/data/logs
+      - JOBCON_SCRIPTS_DIR=/app/scripts
+      # Optional: Initiales Admin-Passwort für den ersten Start (falls leer, wird ein zufälliges Passwort im Log ausgegeben)
+      # - JOBCON_ADMIN_PASSWORD=admin
+      # Optional: Nexus Zugangsdaten über Umgebungsvariablen
+      # - JOBCON_NEXUS_PASSWORD=geheim
+    volumes:
+      # Persistenz: SQLite-Datenbank und Ausführungslogs
+      - ./data:/app/data
+      # Externe Zielserver-Skripte (direkt auf dem Host editier- und erweiterbar!)
+      - ./scripts:/app/scripts
+      # Konfiguration (optional als read-only Mount)
+      - ./config.yaml:/app/config/config.yaml:ro
+      # SSH-Schlüssel für Zielserver-Verbindungen (optional)
+      - /home/maik/.ssh:/home/jobcon/.ssh:ro

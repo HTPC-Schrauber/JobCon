@@ -1,5 +1,8 @@
 # Binaries and build artifacts
 /jobcon
+target/
+*.tar.gz
+*.zip
 *.exe
 *.exe~
 *.dll

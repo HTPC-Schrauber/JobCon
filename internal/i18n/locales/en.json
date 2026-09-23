@@ -153,6 +153,8 @@
     "col_triggered": "Triggered By",
     "view_terminal": "Live Console",
     "back_to_dashboard": "Back to Dashboard",
+    "back_to_executions": "Back to Executions",
+    "back_to_jobs": "Back to Job List",
     "abort": "Abort Execution",
     "download_log": "Download Log",
     "auto_scroll": "Auto-Scroll",

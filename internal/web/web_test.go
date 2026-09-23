@@ -92,12 +92,71 @@ func TestWebHandlerDashboardAndAuth(t *testing.T) {
 	}
 
 	// 5. Executions page GET /executions
+	_ = database.CreateServer(&db.Server{ID: "srv1", Name: "Server 1", Host: "127.0.0.1", User: "root", Port: 22})
+	_ = database.CreateJob(&db.Job{ID: "j1", Name: "TestJob", ServerID: "srv1", NexusRepo: "releases", GroupID: "g", ArtifactID: "a"})
+	if err := database.CreateExecution(&db.Execution{
+		ID:          "exec-123",
+		JobID:       "j1",
+		JobName:     "TestJob",
+		Status:      "success",
+		Action:      "deploy",
+		Version:     "1.0.0",
+		TriggeredBy: "admin",
+		StartedAt:   time.Now(),
+	}); err != nil {
+		t.Fatalf("failed to create execution: %v", err)
+	}
+
 	req = httptest.NewRequest("GET", "/executions", nil)
 	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 OK for /executions, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "clickable-row") || !strings.Contains(body, "data-exec-id=\"exec-123\"") {
+		t.Errorf("expected executions table row with clickable-row and data-exec-id")
+	}
+	if strings.Contains(body, "Konsole &amp; Log") {
+		t.Errorf("expected old 'Konsole & Log' button to be removed")
+	}
+
+	// 5b. Execution page from executions GET /executions/exec-123?from=executions
+	req = httptest.NewRequest("GET", "/executions/exec-123?from=executions", nil)
+	req.Header.Set("Accept-Language", "de")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for /executions/exec-123?from=executions, got %d", rec.Code)
+	}
+	execBody := rec.Body.String()
+	if !strings.Contains(execBody, "href=\"/executions\"") || !strings.Contains(execBody, "Zurück zu Ausführungen") {
+		t.Errorf("expected back link to /executions with text 'Zurück zu Ausführungen', got: %s", execBody)
+	}
+
+	// 5c. Execution page from jobs GET /executions/exec-123?from=jobs
+	req = httptest.NewRequest("GET", "/executions/exec-123?from=jobs", nil)
+	req.Header.Set("Accept-Language", "de")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 OK for /executions/exec-123?from=jobs, got %d", rec.Code)
+	}
+	execBodyJobs := rec.Body.String()
+	if !strings.Contains(execBodyJobs, "href=\"/\"") || !strings.Contains(execBodyJobs, "Zurück zur Job-Liste") {
+		t.Errorf("expected back link to / with text 'Zurück zur Job-Liste', got: %s", execBodyJobs)
+	}
+
+	// 5d. Dashboard job row should link directly to fullscreen console with from=jobs
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "/executions/exec-123?from=jobs") {
+		t.Errorf("expected dashboard job row to contain direct link to /executions/exec-123?from=jobs")
 	}
 
 	// 6. Settings System page GET /settings/system
@@ -766,6 +825,9 @@ func TestWebBulkJobActions(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("expected 303 redirect after bulk undeploy, got %d", rec.Code)
 	}
+
+	// Allow background workers to finish execution before t.TempDir cleanup
+	time.Sleep(150 * time.Millisecond)
 }
 
 func TestWebJobDeleteWithUndeployServer(t *testing.T) {

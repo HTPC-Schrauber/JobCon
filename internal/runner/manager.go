@@ -348,6 +348,22 @@ func (m *ExecutionManager) executeJobCommand(
 	}()
 
 	startTime := time.Now()
+
+	fmt.Fprintf(multiWriter, "[JobCon] ========================================================\n")
+	fmt.Fprintf(multiWriter, "[JobCon] Execution ID:  %s\n", execution.ID)
+	fmt.Fprintf(multiWriter, "[JobCon] Action:        %s\n", strings.ToUpper(action))
+	fmt.Fprintf(multiWriter, "[JobCon] Job:           %s (%s)\n", job.Name, job.ID)
+	fmt.Fprintf(multiWriter, "[JobCon] Target Server: %s (%s:%d)\n", server.Name, server.Host, server.Port)
+	if targetVersion != "" {
+		fmt.Fprintf(multiWriter, "[JobCon] Version:       %s\n", targetVersion)
+	}
+	if targetContext != "" {
+		fmt.Fprintf(multiWriter, "[JobCon] Context:       %s\n", targetContext)
+	}
+	fmt.Fprintf(multiWriter, "[JobCon] Triggered By:  %s\n", execution.TriggeredBy)
+	fmt.Fprintf(multiWriter, "[JobCon] Timestamp:     %s\n", startTime.Format("2006-01-02 15:04:05 MST"))
+	fmt.Fprintf(multiWriter, "[JobCon] ========================================================\n\n")
+
 	exitCode, runErr := m.sshRunner.RunCommand(execCtx, server, remoteCommand, multiWriter)
 	duration := time.Since(startTime).Milliseconds()
 
@@ -372,8 +388,22 @@ func (m *ExecutionManager) executeJobCommand(
 		_ = m.db.SetJobDeployed(job.ID, false, "")
 	}
 
-	log.Printf("[Execution %s] Finished with status %s (exit code %d, duration %dms)",
-		execution.ID, status, exitCode, duration)
+	fmt.Fprintf(multiWriter, "\n[JobCon] ========================================================\n")
+	if runErr != nil {
+		fmt.Fprintf(multiWriter, "[JobCon] Finished:      %s\n", strings.ToUpper(status))
+		fmt.Fprintf(multiWriter, "[JobCon] Exit Code:     %d\n", exitCode)
+		fmt.Fprintf(multiWriter, "[JobCon] Duration:      %d ms\n", duration)
+		fmt.Fprintf(multiWriter, "[JobCon] Error Details: %v\n", runErr)
+		log.Printf("[Execution %s] Finished with status %s (exit code %d, duration %dms): %v",
+			execution.ID, status, exitCode, duration, runErr)
+	} else {
+		fmt.Fprintf(multiWriter, "[JobCon] Finished:      %s\n", strings.ToUpper(status))
+		fmt.Fprintf(multiWriter, "[JobCon] Exit Code:     %d\n", exitCode)
+		fmt.Fprintf(multiWriter, "[JobCon] Duration:      %d ms\n", duration)
+		log.Printf("[Execution %s] Finished with status %s (exit code %d, duration %dms)",
+			execution.ID, status, exitCode, duration)
+	}
+	fmt.Fprintf(multiWriter, "[JobCon] ========================================================\n")
 }
 
 // UndeployJobSync executes undeploy synchronously on the remote execution server

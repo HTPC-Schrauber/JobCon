@@ -153,6 +153,8 @@
     "col_triggered": "Ausgelöst durch",
     "view_terminal": "Vollbild-Konsole",
     "back_to_dashboard": "Zurück zum Dashboard",
+    "back_to_executions": "Zurück zu Ausführungen",
+    "back_to_jobs": "Zurück zur Job-Liste",
     "abort": "Ausführung abbrechen",
     "download_log": "Log herunterladen",
     "auto_scroll": "Auto-Scroll",

@@ -83,10 +83,18 @@ func (a *API) handleGetExecutionLogs(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			if exec.LogPath != "" {
 				if logBytes, err := a.storage.ReadLog(exec.LogPath); err == nil {
-					lines := strings.Split(string(logBytes), "\n")
-					for _, line := range lines {
-						if line != "" {
-							fmt.Fprintf(w, "data: %s\n\n", line)
+					if len(logBytes) == 0 {
+						exitCodeStr := "N/A"
+						if exec.ExitCode != nil {
+							exitCodeStr = strconv.Itoa(*exec.ExitCode)
+						}
+						fmt.Fprintf(w, "data: [JobCon] Log file is empty. Execution %s finished with status: %s (exit code: %s).\n\n", exec.ID, exec.Status, exitCodeStr)
+					} else {
+						lines := strings.Split(string(logBytes), "\n")
+						for _, line := range lines {
+							if line != "" {
+								fmt.Fprintf(w, "data: %s\n\n", line)
+							}
 						}
 					}
 				}
@@ -110,6 +118,18 @@ func (a *API) handleGetExecutionLogs(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("[JobCon] Log file not available or purged."))
+		return
+	}
+
+	if len(logBytes) == 0 {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		exitCodeStr := "N/A"
+		if exec.ExitCode != nil {
+			exitCodeStr = strconv.Itoa(*exec.ExitCode)
+		}
+		msg := fmt.Sprintf("[JobCon] Log file is empty. Execution %s finished with status: %s (exit code: %s).", exec.ID, exec.Status, exitCodeStr)
+		_, _ = w.Write([]byte(msg))
 		return
 	}
 

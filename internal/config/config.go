@@ -19,6 +19,7 @@ type Config struct {
 	Auth        AuthConfig        `yaml:"auth"`
 	Database    DatabaseConfig    `yaml:"database"`
 	Storage     StorageConfig     `yaml:"storage"`
+	Scripts     ScriptsConfig     `yaml:"scripts"`
 	Nexus       NexusConfig       `yaml:"nexus"`
 	SSHDefaults SSHDefaultsConfig `yaml:"ssh_defaults"`
 }
@@ -105,6 +106,10 @@ type StorageConfig struct {
 	CompressCompleted bool   `yaml:"compress_completed"`
 }
 
+type ScriptsConfig struct {
+	Dir string `yaml:"dir"`
+}
+
 type NexusRepository struct {
 	ID    string `json:"id" yaml:"id"`
 	Label string `json:"label" yaml:"label"`
@@ -160,6 +165,9 @@ func DefaultConfig() *Config {
 			LogsDir:           "./data/logs",
 			CompressCompleted: true,
 		},
+		Scripts: ScriptsConfig{
+			Dir: "./scripts",
+		},
 		Nexus: NexusConfig{
 			BaseURL: "https://nexus.intern/repository",
 			Repositories: []NexusRepository{
@@ -209,6 +217,12 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if envLogs := os.Getenv("JOBCON_LOGS_DIR"); envLogs != "" {
 		cfg.Storage.LogsDir = envLogs
+	}
+	if envScripts := os.Getenv("JOBCON_SCRIPTS_DIR"); envScripts != "" {
+		cfg.Scripts.Dir = envScripts
+	}
+	if cfg.Scripts.Dir == "" {
+		cfg.Scripts.Dir = "./scripts"
 	}
 	if envNexusPass := os.Getenv("JOBCON_NEXUS_PASSWORD"); envNexusPass != "" {
 		cfg.Nexus.Password = envNexusPass

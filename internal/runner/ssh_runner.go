@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"jobcon/internal/db"
-	"jobcon/scripts"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -42,19 +42,25 @@ type SSHRunner struct {
 	defaultKeyPath string
 	timeout        time.Duration
 	keepaliveInt   time.Duration
+	scriptsDir     string
 }
 
-func NewSSHRunner(defaultKeyPath string, timeoutSec, keepaliveSec int) *SSHRunner {
+func NewSSHRunner(defaultKeyPath string, timeoutSec, keepaliveSec int, scriptsDir ...string) *SSHRunner {
 	if timeoutSec <= 0 {
 		timeoutSec = 30
 	}
 	if keepaliveSec <= 0 {
 		keepaliveSec = 30
 	}
+	sDir := "./scripts"
+	if len(scriptsDir) > 0 && scriptsDir[0] != "" {
+		sDir = scriptsDir[0]
+	}
 	return &SSHRunner{
 		defaultKeyPath: defaultKeyPath,
 		timeout:        time.Duration(timeoutSec) * time.Second,
 		keepaliveInt:   time.Duration(keepaliveSec) * time.Second,
+		scriptsDir:     sDir,
 	}
 }
 
@@ -65,21 +71,53 @@ func (r *SSHRunner) buildClientConfig(server *db.Server) (*ssh.ClientConfig, err
 		keyPath = r.defaultKeyPath
 	}
 
+	if keyPath == "" {
+		serverName := server.Name
+		if serverName == "" {
+			serverName = server.Host
+		}
+		return nil, fmt.Errorf("no SSH private key configured for server %q and no default key path configured", serverName)
+	}
+
 	// Expand ~ to user home
-	if strings.HasPrefix(keyPath, "~/") {
+	if keyPath == "~" {
 		if home := os.Getenv("HOME"); home != "" {
-			keyPath = home + keyPath[1:]
+			keyPath = home
+		}
+	} else if strings.HasPrefix(keyPath, "~/") {
+		if home := os.Getenv("HOME"); home != "" {
+			keyPath = filepath.Join(home, keyPath[2:])
 		}
 	}
 
 	keyBytes, err := os.ReadFile(keyPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			var hint string
+			if home := os.Getenv("HOME"); home != "" {
+				candidate := filepath.Join(home, ".ssh", filepath.Base(keyPath))
+				if _, statErr := os.Stat(candidate); statErr == nil && candidate != keyPath {
+					hint = fmt.Sprintf(" (found matching key file at %q; if JobCon is running inside Docker, check whether the server is configured with a host path instead of the container mount path, e.g. '~/.ssh/%s')", candidate, filepath.Base(keyPath))
+				}
+			}
+			if hint == "" {
+				hint = " (verify that the file exists and, if JobCon is running inside Docker, that the key or ~/.ssh directory is mounted into the container at this path)"
+			}
+			return nil, fmt.Errorf("SSH private key file not found at %q%s: %w", keyPath, hint, err)
+		}
+		if os.IsPermission(err) {
+			return nil, fmt.Errorf("permission denied reading SSH private key %q (ensure appropriate file permissions e.g. 0600 and container user access): %w", keyPath, err)
+		}
 		return nil, fmt.Errorf("failed to read private key %q: %w", keyPath, err)
 	}
 
 	signer, err := ssh.ParsePrivateKey(keyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key %q: %w", keyPath, err)
+		var passphraseErr *ssh.PassphraseMissingError
+		if errors.As(err, &passphraseErr) {
+			return nil, fmt.Errorf("SSH private key %q is passphrase-protected, which is not supported without an SSH agent: %w", keyPath, err)
+		}
+		return nil, fmt.Errorf("failed to parse SSH private key %q (ensure it is a valid OpenSSH/PEM RSA or Ed25519 private key): %w", keyPath, err)
 	}
 
 	user := server.User
@@ -215,6 +253,33 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 		ScriptsDir: scriptsDir,
 	}
 
+	// 1. Read local scripts from configured directory first
+	entries, err := os.ReadDir(r.scriptsDir)
+	if err != nil {
+		result.ErrorMessage = fmt.Sprintf("Lokales Skriptverzeichnis %q konnte nicht gelesen werden: %v", r.scriptsDir, err)
+		return result, nil
+	}
+
+	scriptMap := make(map[string][]byte)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sh") {
+			continue
+		}
+		path := filepath.Join(r.scriptsDir, entry.Name())
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			result.ErrorMessage = fmt.Sprintf("Lokales Skript %q konnte nicht gelesen werden: %v", entry.Name(), readErr)
+			return result, nil
+		}
+		scriptMap[entry.Name()] = content
+	}
+
+	if _, hasCtl := scriptMap["jobcon_ctl.sh"]; !hasCtl {
+		result.ErrorMessage = fmt.Sprintf("Erforderliches Steuerungsskript 'jobcon_ctl.sh' fehlt im Verzeichnis %q", r.scriptsDir)
+		return result, nil
+	}
+
+	// 2. Connect via SSH
 	sshConfig, err := r.buildClientConfig(server)
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("Ungültige SSH-Konfiguration: %v", err)
@@ -237,7 +302,7 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 	client := ssh.NewClient(c, chans, reqs)
 	defer client.Close()
 
-	// 1. Create directories
+	// 3. Create directories
 	sessionMkdir, err := client.NewSession()
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("SSH-Session für mkdir fehlgeschlagen: %v", err)
@@ -253,53 +318,46 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 	}
 	sessionMkdir.Close()
 
-	// 2. Upload jobcon_ctl.sh
-	ctlTarget := fmt.Sprintf("%s/jobcon_ctl.sh", strings.TrimRight(scriptsDir, "/"))
-	sessionCtl, err := client.NewSession()
-	if err != nil {
-		result.ErrorMessage = fmt.Sprintf("SSH-Session für jobcon_ctl.sh fehlgeschlagen: %v", err)
-		return result, nil
-	}
-	sessionCtl.Stdin = bytes.NewReader(scripts.JobconCtlSh)
-	var stderrCtl bytes.Buffer
-	sessionCtl.Stderr = &stderrCtl
-	writeCtlCmd := fmt.Sprintf("cat > %q && chmod 0755 %q", ctlTarget, ctlTarget)
-	if err := sessionCtl.Run(writeCtlCmd); err != nil {
-		sessionCtl.Close()
-		result.ErrorMessage = fmt.Sprintf("jobcon_ctl.sh konnte nicht übertragen werden: %v (%s)", err, strings.TrimSpace(stderrCtl.String()))
-		return result, nil
-	}
-	sessionCtl.Close()
+	// 3. Upload all scripts to target
+	var installedFiles []string
+	var verifyChecks []string
+	cleanScriptsDir := strings.TrimRight(scriptsDir, "/")
 
-	// 3. Upload run_job.sh
-	runJobTarget := fmt.Sprintf("%s/run_job.sh", strings.TrimRight(scriptsDir, "/"))
-	sessionRunJob, err := client.NewSession()
-	if err != nil {
-		result.ErrorMessage = fmt.Sprintf("SSH-Session für run_job.sh fehlgeschlagen: %v", err)
-		return result, nil
+	for scriptName, content := range scriptMap {
+		targetFile := fmt.Sprintf("%s/%s", cleanScriptsDir, scriptName)
+		sessionUpload, err := client.NewSession()
+		if err != nil {
+			result.ErrorMessage = fmt.Sprintf("SSH-Session für %s fehlgeschlagen: %v", scriptName, err)
+			return result, nil
+		}
+		sessionUpload.Stdin = bytes.NewReader(content)
+		var stderrUpload bytes.Buffer
+		sessionUpload.Stderr = &stderrUpload
+		writeCmd := fmt.Sprintf("cat > %q && chmod 0755 %q", targetFile, targetFile)
+		if err := sessionUpload.Run(writeCmd); err != nil {
+			sessionUpload.Close()
+			result.ErrorMessage = fmt.Sprintf("%s konnte nicht übertragen werden: %v (%s)", scriptName, err, strings.TrimSpace(stderrUpload.String()))
+			return result, nil
+		}
+		sessionUpload.Close()
+		installedFiles = append(installedFiles, scriptName)
+		verifyChecks = append(verifyChecks, fmt.Sprintf("[ -x %q ]", targetFile))
 	}
-	sessionRunJob.Stdin = bytes.NewReader(scripts.RunJobSh)
-	var stderrRunJob bytes.Buffer
-	sessionRunJob.Stderr = &stderrRunJob
-	writeRunJobCmd := fmt.Sprintf("cat > %q && chmod 0755 %q", runJobTarget, runJobTarget)
-	if err := sessionRunJob.Run(writeRunJobCmd); err != nil {
-		sessionRunJob.Close()
-		result.ErrorMessage = fmt.Sprintf("run_job.sh konnte nicht übertragen werden: %v (%s)", err, strings.TrimSpace(stderrRunJob.String()))
-		return result, nil
-	}
-	sessionRunJob.Close()
 
-	// 4. Verify scripts
-	sessionVerify, err := client.NewSession()
-	if err == nil {
-		verifyCmd := fmt.Sprintf("[ -x %q ] && [ -x %q ]", ctlTarget, runJobTarget)
-		_ = sessionVerify.Run(verifyCmd)
-		sessionVerify.Close()
+	// 4. Verify scripts on target
+	if len(verifyChecks) > 0 {
+		sessionVerify, err := client.NewSession()
+		if err == nil {
+			verifyCmd := strings.Join(verifyChecks, " && ")
+			_ = sessionVerify.Run(verifyCmd)
+			sessionVerify.Close()
+		}
 	}
 
 	result.Success = true
-	result.InstalledFiles = []string{"jobcon_ctl.sh", "run_job.sh"}
-	result.Message = fmt.Sprintf("Verzeichnisse (%s, %s) erfolgreich eingerichtet und Scripte (jobcon_ctl.sh, run_job.sh) mit Rechten 0755 installiert.", jobsDir, scriptsDir)
+	result.InstalledFiles = installedFiles
+	result.Message = fmt.Sprintf("Verzeichnisse (%s, %s) erfolgreich eingerichtet und Scripte (%s) mit Rechten 0755 installiert.",
+		jobsDir, scriptsDir, strings.Join(installedFiles, ", "))
 	return result, nil
 }
 
@@ -307,12 +365,18 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command string, output io.Writer) (int, error) {
 	sshConfig, err := r.buildClientConfig(server)
 	if err != nil {
+		if output != nil {
+			fmt.Fprintf(output, "[JobCon Error] SSH configuration failed: %v\n", err)
+		}
 		return -1, fmt.Errorf("invalid SSH configuration: %w", err)
 	}
 
 	addr := fmt.Sprintf("%s:%d", server.Host, server.Port)
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
+		if output != nil {
+			fmt.Fprintf(output, "[JobCon Error] SSH connection to %s (%s@%s) failed: %v\n", addr, sshConfig.User, server.Host, err)
+		}
 		return -1, fmt.Errorf("failed to dial SSH server %s: %w", addr, err)
 	}
 	defer client.Close()
@@ -335,6 +399,9 @@ func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command s
 
 	session, err := client.NewSession()
 	if err != nil {
+		if output != nil {
+			fmt.Fprintf(output, "[JobCon Error] Failed to create SSH session on %s: %v\n", addr, err)
+		}
 		return -1, fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
@@ -344,6 +411,9 @@ func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command s
 
 	// Start command asynchronously to allow context cancellation
 	if err := session.Start(command); err != nil {
+		if output != nil {
+			fmt.Fprintf(output, "[JobCon Error] Failed to start remote command on %s: %v\n", addr, err)
+		}
 		return -1, fmt.Errorf("failed to start remote command: %w", err)
 	}
 
@@ -354,6 +424,9 @@ func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command s
 
 	select {
 	case <-ctx.Done():
+		if output != nil {
+			fmt.Fprintf(output, "\n[JobCon] Execution aborted by user/context.\n")
+		}
 		// Graceful abort: send signal or close session
 		_ = session.Signal(ssh.SIGTERM)
 		// Give process 2 seconds to terminate before closing session
@@ -369,6 +442,9 @@ func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command s
 			var exitErr *ssh.ExitError
 			if errors.As(err, &exitErr) {
 				return exitErr.ExitStatus(), nil
+			}
+			if output != nil {
+				fmt.Fprintf(output, "\n[JobCon Error] Remote execution error: %v\n", err)
 			}
 			return -1, err
 		}

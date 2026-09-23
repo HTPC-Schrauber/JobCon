@@ -75,6 +75,7 @@ func main() {
 		cfg.SSHDefaults.KeyPath,
 		cfg.SSHDefaults.TimeoutSeconds,
 		cfg.SSHDefaults.KeepaliveIntervalSeconds,
+		cfg.Scripts.Dir,
 	)
 
 	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)

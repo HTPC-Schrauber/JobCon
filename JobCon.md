@@ -1,13 +1,18 @@
-# Blueprint: JobCon – Lightweight Talend Job Deployment & Execution Engine
+# Blueprint: JobCon – Lightweight Job Deployment & Execution Engine
 
 ## 1. Executive Summary & Zielsetzung
 
-**JobCon** ist ein leichtgewichtiger, wartungsarmer und performanter Ersatz für den Talend Administration Center (TAC) / Job Conductor. Die Kernphilosophie besteht in der **strikten Entkopplung von Deployment (Bereitstellung/Versionierung) und Execution (Ausführung)** sowie in einer minimalistischen Single-Binary-Architektur für **Linux-Umgebungen**.
+**JobCon** ist eine leichtgewichtige, wartungsarme und performante Linux-native Engine zur Bereitstellung, Versionierung und Ausführung von Jobs auf verteilten Linux-Servern.
+
+Ursprünglich als schlanker, moderner Ersatz für das **Talend Administration Center (TAC) / Job Conductor** konzipiert, ist JobCon darauf ausgelegt, sich schrittweise zu einer **universellen Job-Plattform** für beliebige Batch-, ETL- und Hintergrundjobs (Talend, Python-Skripte, Bash-Workflows, Linux-Binaries) zu entwickeln. Als Transport- und Artefakt-Repository dient aktuell primär **Sonatype Nexus** (Maven ZIP-Archive); die Architektur ist jedoch darauf ausgelegt, künftig auch alternative Repositories (z. B. **Git Releases**) als Artefaktquelle anzubinden.
+
+Die Kernphilosophie besteht in der **strikten Entkopplung von Deployment (Bereitstellung/Versionierung) und Execution (Ausführung)** sowie in einem minimalistischen Footprint für **Linux-Umgebungen**.
 
 ### Zentrale Anforderungen & Leitprinzipien
-* **Single-Binary & Linux-Native:** Entwickelt in **Go (Golang)** ohne CGO- oder externe Runtime-Abhängigkeiten (kein Java, kein Python, kein externer Webserver nötig). Betrieb von JobCon und allen Execution Servern erfolgt zu 100 % unter **Linux**.
+* **Single-Binary, Linux-Native & Container-Ready:** Entwickelt in **Go (Golang)** ohne CGO- oder externe Runtime-Abhängigkeiten (kein Java, kein Python, kein externer Webserver nötig). Betrieb wahlweise direkt als Single-Binary, als Systemd-Service oder in einem gehärteten Container basierend auf **Debian 13 (Trixie Slim)**.
+* **Vollständig externe Zielserver-Skripte:** Skripte (`jobcon_ctl.sh`, `run_job.sh`) werden **nicht** im Binary einkompiliert, sondern liegen im Dateisystem (`./scripts/`) und werden zur Laufzeit dynamisch geladen und per SSH übertragen. Dadurch können sie ohne Rebuild angepasst und um neue Job-Typen erweitert werden.
 * **Entkopplung von Deployment & Execution:**
-  * **Deployment:** Herunterladen aus Nexus, Entpacken und atomare Versionierung auf dem Zielserver (angestoßen durch Jenkins CI/CD oder JobCon UI/API).
+  * **Deployment:** Herunterladen aus Nexus (oder künftig Git Releases), Entpacken und atomare Versionierung auf dem Zielserver (angestoßen durch Jenkins CI/CD oder JobCon UI/API).
   * **Execution:** Lokale oder remote Ausführung der installierten Version. Ermöglicht **Zero-Overhead-Starts** für externe Scheduler wie **JS7 / SOS JobScheduler**.
 * **Benutzerauthentifizierung & Rollen:**
   * Native Authentifizierung via **HTTP BasicAuth** und Session-Cookies.
@@ -695,7 +700,7 @@ WantedBy=multi-user.target
 6. **Phase 5b: Erweitertes Execution-Server Management [Abgeschlossen]**
    * Interaktives Sidepanel für Execution Server mit Statusdiagnose und Job-Zugehörigkeiten.
    * Server-spezifische Jobs- (`jobs_dir`) und Scripte-Verzeichnisse (`scripts_dir`) in DB und UI.
-   * Automatisches Zielserver-Setup via SSH: Einbetten (`//go:embed`) und Verteilen von `jobcon_ctl.sh` und `run_job.sh` mit Rechten 0755.
+   * Automatisches Zielserver-Setup via SSH: Dynamisches Laden und Verteilen von `jobcon_ctl.sh` und `run_job.sh` aus `./scripts/` mit Rechten 0755 (in Phase 7 von `//go:embed` auf externe Dateien umgestellt).
    * Sicheres Löschen von Servern mit Abhängigkeitsprüfung und atomarer Job-Migration auf alternative Zielserver.
 7. **Phase 5c: Nexus 3 Pfad-Normalisierung & Download-Robustheit [Abgeschlossen]**
    * Normalisierung von Nexus 3 Maven-Repository URLs: Trennung von REST-API-Aufrufen (`/service/rest/v1/...` an Host-Root) und Artefakt-Downloads (`/repository/{repo}/...`).
@@ -716,6 +721,12 @@ WantedBy=multi-user.target
    * **Verbesserte Zeilenauswahl & Deselektion:** Einzelauswahl mit Deselektion bei erneutem Klick auf denselben Job; Mehrfachauswahl via Strg/Cmd+Klick Toggle; Shift+Klick Bereichsauswahl; Esc-Taste oder Button zum Leeren; Klicks auf Aktions-Buttons lösen keine Zeilenauswahl aus.
    * **Nexus Local DB Cache & Background Syncer:** Lokale SQLite-Tabelle `nexus_artifacts` mit Indizes; periodischer Hintergrund-Syncer (`Syncer`) mit konfigurierbarem Intervall; manuelle Sofort-Synchronisation via UI und API (`POST /api/v1/nexus/sync`); Artefakt-Suche (< 5ms) ohne Last auf Nexus.
    * **Warteschlange & Parallelität:** Globale Standard-Parallelität (`max_concurrent_jobs`) in System-Einstellungen; Queue-Worker-Pool startet bis zu $N$ Jobs parallel und lässt folgende automatisch nachrücken; temporäre Übersteuerung direkt in der Bulk-Toolbar (`Parallel: [ N ]`).
-10. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung**
+10. **Phase 6: Optionale LDAP/AD-Anbindung & Härtung [Abgeschlossen]**
    * Implementierung des LDAP-Authenticators (`go-ldap/ldap/v3`).
    * Reverse Proxy & TLS-Verifikation, systemd Deployment.
+11. **Phase 7: Externe Zielserver-Skripte, Target-Build & Debian Trixie Containerisierung [Abgeschlossen]**
+   * **Entkopplung der Zielserver-Skripte:** Vollständige Entfernung von `//go:embed` aus dem Go-Binary. Skripte (`jobcon_ctl.sh`, `run_job.sh` etc.) liegen extern im Verzeichnis `./scripts/` und werden beim Server-Setup dynamisch per SSH auf den Zielhost übertragen.
+   * **Konfigurierbarkeit:** Neuer Konfigurationsparameter `scripts.dir` (Standard: `./scripts`), übersteuerbar mit `JOBCON_SCRIPTS_DIR`.
+   * **Target-Build & Distributions-Paket:** `build.sh` und `Makefile` erzeugen ein fertiges `target/`-Verzeichnis mit statischem Linux-Binary, `jobcon.service` Systemd-Unit, Beispielkonfiguration und Release-Archiven (`.tar.gz`, `.zip`).
+   * **Debian 13 (Trixie Slim) Container:** Multi-Stage Dockerfile mit `golang:trixie` (Builder) und `debian:trixie-slim` (Runtime), gehärtet mit Non-Root User `jobcon` (UID 1000).
+   * **Docker Compose:** `compose.yaml` mit gemounteten Host-Volumes (`./scripts`, `./data`, `./config.yaml`, `~/.ssh`). Skript-Anpassungen auf dem Host werden ohne Image-Neubau sofort wirksam.

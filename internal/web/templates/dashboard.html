@@ -225,19 +225,19 @@
                                                     RUNNING
                                                 </span>
                                                 {{if .LastRunID}}
-                                                    <button type="button" class="action-btn text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 text-[11px] transition-colors underline" style="background: none; border: none; cursor: pointer; padding: 0;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
+                                                    <a href="/executions/{{.LastRunID}}?from=jobs" class="action-btn text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 text-[11px] transition-colors underline" style="background: none; border: none; cursor: pointer; padding: 0;" onclick="event.stopPropagation();">
                                                         Live-Log
-                                                    </button>
+                                                    </a>
                                                 {{end}}
                                             {{else}}
                                                 <span class="badge {{if eq .LastRunStatus "success"}}badge-success{{else if eq .LastRunStatus "failed"}}badge-danger{{else}}badge-neutral{{end}}">
                                                     {{.LastRunStatus}}
                                                 </span>
                                                 {{if .LastRunID}}
-                                                    <button type="button" class="btn btn-secondary btn-sm action-btn" style="padding: 2px 6px; font-size: 11px;" onclick="event.stopPropagation(); openQuickLog('{{.LastRunID}}', '{{.Name}}')">
+                                                    <a href="/executions/{{.LastRunID}}?from=jobs" class="btn btn-secondary btn-sm action-btn" style="padding: 2px 6px; font-size: 11px;" onclick="event.stopPropagation();">
                                                         <svg class="icon icon-sm"><use href="#icon-file-text"></use></svg>
                                                         Log
-                                                    </button>
+                                                    </a>
                                                 {{end}}
                                             {{end}}
                                         </div>
@@ -1072,7 +1072,7 @@ function openSidepanel(jobId) {
                         html += '<div style="font-size: 11px; color: var(--text-muted);">' + new Date(e.started_at).toLocaleString() + '</div>';
                         html += '<div style="display: flex; gap: 4px;">';
                         html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="loadLogIntoSidepanel(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">' + iconSvg('file-text', 'icon-sm') + ' Log</button>';
-                        html += '<button type="button" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" onclick="openQuickLog(\'' + e.id + '\', \'' + (job.name || '').replace(/'/g, "\\'") + '\')">' + iconSvg('maximize', 'icon-sm') + '</button>';
+                        html += '<a href="/executions/' + e.id + '?from=jobs" class="btn btn-secondary btn-sm" style="padding: 2px 6px; font-size: 11px;" title="' + window.t('sidepanel.fullscreen') + '">' + iconSvg('maximize', 'icon-sm') + '</a>';
                         html += '</div>';
                         html += '</div>';
                     });
@@ -1250,15 +1250,7 @@ function checkDeployConflict() {
 }
 
 function openQuickLog(execId, jobName) {
-    document.getElementById('quickLogTitle').innerText = 'Log: ' + jobName;
-    document.getElementById('quickLogContent').innerText = 'Lade Log...';
-    document.getElementById('quickLogLink').href = '/executions/' + execId;
-    document.getElementById('quickLogModal').style.display = 'flex';
-    fetch('/api/v1/executions/' + execId + '/logs?format=raw')
-        .then(r => r.text())
-        .then(txt => {
-            document.getElementById('quickLogContent').innerText = txt;
-        });
+    window.location.href = '/executions/' + execId + '?from=jobs';
 }
 
 // Nexus Tree Browser Picker with Concurrency / Race Condition Fix

@@ -1,14 +1,19 @@
-# JobCon – Lightweight Talend Job Deployment & Execution Engine
+# JobCon – Lightweight Job Deployment & Execution Engine
 
-JobCon ist ein leichtgewichtiger, Linux-nativer Ersatz für den Talend Administration Center (TAC) / Job Conductor.
+JobCon ist eine leichtgewichtige, performante und Linux-native Deployment- und Execution-Engine für versionierte Jobs auf Zielservern.
+
+Ursprünglich als moderner, schlanker Ersatz für das **Talend Administration Center (TAC) / Job Conductor** konzipiert, entwickelt sich JobCon kontinuierlich zu einer universellen Steuerzentrale für beliebige Batch-, ETL- und Hintergrundjobs (z. B. Talend, Python, Bash-Skripte oder native Linux-Binaries). Aktuell ist als Artefakt-Transportmittel primär **Sonatype Nexus** (Maven ZIP-Archive) angebunden; die modulare Struktur bereitet jedoch bereits den Weg für künftige Repository-Alternativen wie **Git Releases** vor.
+
+![JobCon Dashboard](docs/screenshots/dashboard.png)
 
 ## Kernmerkmale
 
-* **Single-Binary-Architektur:** Entwickelt in reiner Go-Standardbibliothek + CGO-freiem SQLite (`modernc.org/sqlite`). Keine Java-, Node- oder Python-Laufzeitabhängigkeiten.
+* **Single-Binary & Container-Ready:** Entwickelt in reiner Go-Standardbibliothek + CGO-freiem SQLite (`modernc.org/sqlite`). Keine Java-, Node- oder Python-Laufzeitabhängigkeiten auf dem JobCon-Host.
 * **Entkopplung von Deployment & Execution:**
-  * **Deployment & Undeployment:** Automatisierter Download aus Nexus & atomare Versionierung (`releases/{version}` und Symlink `current`) sowie sauberes Undeployen/Entfernen von Zielservern.
-  * **Execution:** Lokaler Start ohne TAC-Overhead via `run_job.sh` für **JS7 / SOS JobScheduler** oder über JobCon SSH-Runner.
+  * **Deployment & Undeployment:** Download aus Nexus, versionierte Ablage (`releases/{version}`), atomares Umschalten des Symlinks `current` sowie sauberes Undeployen/Entfernen von Zielservern.
+  * **Execution:** Lokaler Start ohne TAC-Overhead via schlanke Starter-Skripte für **JS7 / SOS JobScheduler**, Cron oder über JobCon SSH-Runner.
   * **Deployment-Status:** Direkte Visualisierung (grüner/grauer Statuspunkt), ob Jobs auf den Zielservern bereitgestellt sind.
+* **Externe Zielserver-Skripte:** Skripte (`jobcon_ctl.sh`, `run_job.sh`) sind **vollständig extern** im Verzeichnis `./scripts/` ausgelagert und nicht im Binary fest einkompiliert. Sie können ad-hoc angepasst oder für alternative Job-Typen erweitert werden.
 * **Multi-Job Steuerung (Bulk Actions):**
   * Komfortable Mehrfachauswahl via Klick, Shift+Klick (Bereich) und Strg/Cmd+Klick (Toggle) ganz ohne Checkboxen.
   * Bulk-Aktionsleiste für Direktausführung (`▶ Start` ohne Modal-Popup), Deployment (`🚀 Deploy`) und Undeployment (`🗑️ Undeploy`).
@@ -28,52 +33,78 @@ JobCon ist ein leichtgewichtiger, Linux-nativer Ersatz für den Talend Administr
 
 ---
 
-## Schnellstart
+## Bereitstellung & Schnellstart
 
-### 1. Kompilieren
-```bash
-go build -o jobcon ./cmd/jobcon
-```
+JobCon kann wahlweise via **Docker Compose**, als **Systemd-Service auf Linux** oder direkt als **Single-Binary** betrieben werden.
 
-### 2. Konfiguration
-Kopieren Sie die Beispielkonfiguration:
-```bash
-cp config.example.yaml config.yaml
-```
+### Option A: Docker Compose (Empfohlen)
 
-Passen Sie die Pfade und Zugangsdaten nach Bedarf an.
+JobCon läuft in einem gehärteten Container basierend auf **Debian 13 (Trixie Slim)** unter dem Non-Root User `jobcon` (UID 1000).
 
-### 3. Starten
-```bash
-./jobcon --config config.yaml
-```
+1. Konfiguration vorbereiten:
+   ```bash
+   cp config.example.yaml config.yaml
+   ```
 
-Beim Erststart wird automatisch ein initialer Administrator angelegt:
-* **Benutzer:** `admin`
-* **Passwort:** Wird im Konsolen-Log generiert oder kann über die Umgebungsvariable `JOBCON_ADMIN_PASSWORD` vorgegeben werden.
+2. Container starten:
+   ```bash
+   docker compose up -d
+   ```
 
-Öffnen Sie anschließend `http://localhost:8080` im Browser.
+3. Logs einsehen:
+   ```bash
+   docker compose logs -f
+   ```
+
+* **Persistenz:** Datenbank und Logs werden unter `./data` gespeichert.
+* **Externe Skripte:** Das Verzeichnis `./scripts/` ist als Volume gemountet. Änderungen an den Server-Skripten werden sofort ohne Container-Neubau wirksam!
 
 ---
 
-## Zielserver-Skripte
+### Option B: Build & Deployment via `target/` Verzeichnis
 
-Auf den Execution-Hosts werden die beiden Skripte aus dem Ordner `scripts/` unter `/opt/talend/scripts/` abgelegt:
+Das Build-Skript erzeugt eine saubere, sofort verteilbare Distributionsstruktur:
 
-1. **`jobcon_ctl.sh`** (Universal-Skript für JobCon):
-   * Deployt Releases aus Nexus nach `/opt/talend/jobs/{job_name}/releases/{version}`.
-   * Undeployt und bereinigt Jobs (`undeploy`).
-   * Schaltet atomar den Symlink `current` um.
-   * Bereinigt alte Releases gemäß Retention-Vorgabe.
-   * Lädt Umgebungsvariablen aus `.env` (`--env-file`).
-   * Startet den Job in einer eigenen Prozessgruppe (`setsid`).
+```bash
+make build
+# oder: ./build.sh
+```
 
-2. **`run_job.sh`** (Schlanker Starter für JS7 / Cron):
-   * Bindet automatisch `.env`-Dateien ein.
+Das erstellte Verzeichnis `target/` enthält:
+* `jobcon`: Statisch gelinktes Linux-Binary.
+* `scripts/`: Externe Zielserver-Skripte (`jobcon_ctl.sh`, `run_job.sh`).
+* `config.example.yaml`: Beispiel-Konfiguration.
+* `jobcon.service`: Systemd-Service-Unit für Linux/Debian.
+* `jobcon-linux-amd64.tar.gz` / `.zip`: Distributionsarchive.
+
+#### Installation als Systemd-Service:
+```bash
+sudo cp -r target/* /opt/jobcon/
+sudo useradd -r -s /bin/false -d /opt/jobcon jobcon || true
+sudo chown -R jobcon:jobcon /opt/jobcon
+sudo cp /opt/jobcon/jobcon.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now jobcon
+```
+
+---
+
+## Externe Zielserver-Skripte
+
+Die Skripte für Zielserver liegen extern im Verzeichnis `./scripts/` und werden **nicht** in das Binary einkompiliert. Dadurch können sie jederzeit angepasst und um neue Job-Typen erweitert werden:
+
+1. **`jobcon_ctl.sh`** (Universal-Controller auf dem Zielserver):
+   * Deployt Releases nach `/opt/talend/jobs/{job_name}/releases/{version}`.
+   * Rotiert atomar die Symlinks (`current`, `current-1`, etc.).
+   * Bereinigt unverlinkte Versionen anhand der Retention-Policy.
+   * Bindet `.env`-Dateien ein und startet den Job in einer eigenen Prozessgruppe (`setsid`).
+2. **`run_job.sh`** (Schlanker Starter für JS7 / SOS JobScheduler oder Cron):
    * Führt das jeweils aktive Release direkt lokal aus:
      ```bash
-     /opt/talend/scripts/run_job.sh <job_name> [optionale talend params...]
+     /opt/talend/scripts/run_job.sh <job_name> [optionale params...]
      ```
+
+Beim Einrichten eines Servers über die Web-UI oder API lädt JobCon automatisch alle `.sh`-Skripte aus dem konfigurierten Skriptverzeichnis (`./scripts`) per SSH auf den Zielserver.
 
 ---
 

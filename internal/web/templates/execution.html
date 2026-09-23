@@ -1,8 +1,8 @@
 {{define "content"}}
 <div style="margin-bottom: 16px;">
-    <a href="/" style="color: var(--text-muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
+    <a href="{{.BackURL}}" onclick="if (document.referrer && (document.referrer.includes('/executions') || document.referrer.includes('{{.BackURL}}'))) { history.back(); return false; }" style="color: var(--text-muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px;">
         <svg class="icon icon-sm"><use href="#icon-arrow-left"></use></svg>
-        Zurück zum Dashboard
+        {{call $.T .BackLabelKey}}
     </a>
 </div>
 

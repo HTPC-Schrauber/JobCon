@@ -346,6 +346,12 @@ td {
 tr:hover td {
   background: rgba(255, 255, 255, 0.02);
 }
+.clickable-row {
+  cursor: pointer;
+}
+tr.clickable-row:hover td {
+  background: rgba(255, 255, 255, 0.045);
+}
 
 /* Status Badges - Precision Style */
 .badge {

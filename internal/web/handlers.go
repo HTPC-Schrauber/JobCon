@@ -470,11 +470,31 @@ func (h *WebHandler) handleExecutionPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	from := r.URL.Query().Get("from")
+	if from == "" {
+		ref := r.Header.Get("Referer")
+		if strings.Contains(ref, "/executions") {
+			from = "executions"
+		} else {
+			from = "jobs"
+		}
+	}
+
+	backURL := "/"
+	backLabelKey := "executions.back_to_jobs"
+	if from == "executions" {
+		backURL = "/executions"
+		backLabelKey = "executions.back_to_executions"
+	}
+
 	data := map[string]any{
-		"Title":      "Execution " + exec.ID,
-		"CurrentTab": "executions",
-		"User":       user,
-		"Exec":       exec,
+		"Title":        "Execution " + exec.ID,
+		"CurrentTab":   "executions",
+		"User":         user,
+		"Exec":         exec,
+		"From":         from,
+		"BackURL":      backURL,
+		"BackLabelKey": backLabelKey,
 	}
 	h.render(w, r, "execution.html", data)
 }
@@ -638,7 +658,7 @@ func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/executions/"+exec.ID, http.StatusSeeOther)
+	http.Redirect(w, r, "/executions/"+exec.ID+"?from=jobs", http.StatusSeeOther)
 }
 
 func (h *WebHandler) handleWebJobDeploy(w http.ResponseWriter, r *http.Request) {
@@ -657,7 +677,7 @@ func (h *WebHandler) handleWebJobDeploy(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/executions/"+exec.ID, http.StatusSeeOther)
+	http.Redirect(w, r, "/executions/"+exec.ID+"?from=jobs", http.StatusSeeOther)
 }
 
 func (h *WebHandler) handleWebJobUndeploy(w http.ResponseWriter, r *http.Request) {
@@ -683,7 +703,7 @@ func (h *WebHandler) handleWebJobUndeploy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	http.Redirect(w, r, "/executions/"+exec.ID, http.StatusSeeOther)
+	http.Redirect(w, r, "/executions/"+exec.ID+"?from=jobs", http.StatusSeeOther)
 }
 
 func (h *WebHandler) handleWebBulkRun(w http.ResponseWriter, r *http.Request) {
