@@ -183,6 +183,19 @@
                 <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">SSH Key Pfad</div>
                 <div id="spKeyPath" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #e4e4e7; word-break: break-all;"></div>
             </div>
+            <div style="grid-column: span 2;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">SSH Host-Key (Fingerprint)</div>
+                    {{if eq .User.Role "admin"}}
+                    <button id="spResetHostKeyBtn" type="button" class="btn btn-secondary btn-sm" style="font-size: 10px; padding: 1px 7px; display: none;" onclick="resetServerHostKey()">
+                        Key zurücksetzen
+                    </button>
+                    {{end}}
+                </div>
+                <div id="spHostKeyFingerprint" style="font-family: var(--mono); font-size: 11.5px; margin-top: 2px; color: #fff; word-break: break-all;">
+                    Noch nicht erfasst
+                </div>
+            </div>
             <div>
                 <div style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;">Jobs-Verzeichnis</div>
                 <div id="spJobsDir" style="font-family: var(--mono); font-size: 12px; margin-top: 2px; color: #fff; word-break: break-all;"></div>
@@ -413,6 +426,17 @@ function openServerSidepanel(serverId) {
             document.getElementById('spEnvFile').innerText = s.env_file || '.env (Standard)';
             document.getElementById('spLastChecked').innerText = s.last_checked_at ? new Date(s.last_checked_at).toLocaleString('de-DE') : 'Noch nicht geprüft';
 
+            // Host Key Fingerprint
+            const hostKeyEl = document.getElementById('spHostKeyFingerprint');
+            const resetBtn = document.getElementById('spResetHostKeyBtn');
+            if (s.host_key_fingerprint) {
+                hostKeyEl.innerText = s.host_key_fingerprint;
+                if (resetBtn) resetBtn.style.display = 'inline-block';
+            } else {
+                hostKeyEl.innerHTML = '<span style="color: var(--text-muted); font-style: italic;">Noch nicht erfasst (wird beim ersten Verbindungstest gespeichert)</span>';
+                if (resetBtn) resetBtn.style.display = 'none';
+            }
+
             // Status Badge
             const statusEl = document.getElementById('spStatusBadge');
             if (s.status === 'online') {
@@ -494,10 +518,20 @@ function testServerFromSidepanel(serverId) {
                 statusEl.innerHTML = badge;
                 if (tableStatusEl) tableStatusEl.innerHTML = badge;
 
+                if (res.host_key_fingerprint) {
+                    const hostKeyEl = document.getElementById('spHostKeyFingerprint');
+                    if (hostKeyEl) hostKeyEl.innerText = res.host_key_fingerprint;
+                    const resetBtn = document.getElementById('spResetHostKeyBtn');
+                    if (resetBtn) resetBtn.style.display = 'inline-block';
+                }
+
                 let diag = '<strong>Verbindung erfolgreich!</strong> Latenz: ' + res.latency_ms + 'ms | OS: ' + (res.os_info || 'Linux') + '<br>';
                 diag += 'Jobs-Verzeichnis: ' + (res.jobs_dir_exists ? '<span style="color: #34d399;">✓ Vorhanden</span>' : '<span style="color: #f87171;">✗ Fehlt</span>') + ' | ';
                 diag += 'Scripts-Verzeichnis: ' + (res.scripts_dir_exists ? '<span style="color: #34d399;">✓ Vorhanden</span>' : '<span style="color: #f87171;">✗ Fehlt</span>') + ' | ';
                 diag += 'Scripte bereitgestellt: ' + (res.scripts_installed ? '<span style="color: #34d399;">✓ Installiert</span>' : '<span style="color: #f87171;">✗ Nicht installiert</span>');
+                if (res.host_key_fingerprint) {
+                    diag += '<br>Host-Key: <code style="font-size: 11px;">' + escapeHtml(res.host_key_fingerprint) + '</code>';
+                }
                 showAlert('spActionAlert', 'success', diag);
 
                 // Update setup status text
@@ -513,6 +547,29 @@ function testServerFromSidepanel(serverId) {
         })
         .catch(err => {
             showAlert('spActionAlert', 'danger', 'Fehler beim Testen: ' + err.message);
+        });
+}
+
+function resetServerHostKey() {
+    if (!currentServerData) return;
+    const serverId = currentServerData.id;
+    if (!confirm('Möchten Sie den gespeicherten Host-Key für diesen Server wirklich löschen?\n\nBeim nächsten Verbindungstest wird der Host-Key des Zielservers neu erfasst und gespeichert.')) {
+        return;
+    }
+
+    fetch('/api/v1/servers/' + serverId + '/hostkey/reset', { method: 'POST' })
+        .then(res => {
+            if (!res.ok) throw new Error('Status ' + res.status);
+            return res.json();
+        })
+        .then(data => {
+            document.getElementById('spHostKeyFingerprint').innerHTML = '<span style="color: var(--text-muted); font-style: italic;">Noch nicht erfasst (wird beim ersten Verbindungstest gespeichert)</span>';
+            const resetBtn = document.getElementById('spResetHostKeyBtn');
+            if (resetBtn) resetBtn.style.display = 'none';
+            showAlert('spActionAlert', 'success', '<strong>Host-Key zurückgesetzt:</strong> Der gespeicherte Schlüssel wurde entfernt. Führen Sie einen Verbindungstest durch, um den aktuellen Schlüssel neu zu erfassen.');
+        })
+        .catch(err => {
+            showAlert('spActionAlert', 'danger', 'Fehler beim Zurücksetzen des Host-Keys: ' + err.message);
         });
 }
 

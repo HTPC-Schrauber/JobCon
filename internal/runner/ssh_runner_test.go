@@ -2,11 +2,16 @@ package runner
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"jobcon/internal/db"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func TestNewSSHRunner_ScriptsDir(t *testing.T) {
@@ -155,5 +160,107 @@ func TestRunCommand_WritesErrorToOutput(t *testing.T) {
 	}
 	if !strings.Contains(output, "SSH private key file not found") {
 		t.Errorf("expected key not found details in output, got: %q", output)
+	}
+}
+
+func TestHostKeyCallback_TOFUAndMismatch(t *testing.T) {
+	// Generate two test key pairs (ed25519)
+	pub1, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	sshKey1, err := ssh.NewPublicKey(pub1)
+	if err != nil {
+		t.Fatalf("failed to create ssh public key: %v", err)
+	}
+
+	pub2, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ed25519 key: %v", err)
+	}
+	sshKey2, err := ssh.NewPublicKey(pub2)
+	if err != nil {
+		t.Fatalf("failed to create ssh public key: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	server := &db.Server{
+		ID:         "srv-tofu-1",
+		Name:       "TOFU Test Server",
+		Host:       "192.168.1.100",
+		Port:       22,
+		User:       "talend",
+		SSHKeyPath: "/tmp/key",
+	}
+	if err := database.CreateServer(server); err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	r := NewSSHRunner("/tmp/key", 5, 5)
+	r.SetDB(database)
+
+	cb := r.buildHostKeyCallback(server)
+
+	// 1. First connection: TOFU should record and accept key1
+	dummyAddr, _ := net.ResolveTCPAddr("tcp", "192.168.1.100:22")
+	if err := cb("192.168.1.100:22", dummyAddr, sshKey1); err != nil {
+		t.Fatalf("expected TOFU to accept key1, got err: %v", err)
+	}
+
+	if server.HostKey == "" {
+		t.Fatal("expected server.HostKey to be populated by TOFU")
+	}
+	if server.HostKeyFingerprint == "" {
+		t.Fatal("expected server.HostKeyFingerprint to be populated by TOFU")
+	}
+
+	// Verify key was persisted to DB
+	fromDB, err := database.GetServer("srv-tofu-1")
+	if err != nil {
+		t.Fatalf("failed to get server from db: %v", err)
+	}
+	if fromDB.HostKey != server.HostKey {
+		t.Errorf("expected DB host key %q, got %q", server.HostKey, fromDB.HostKey)
+	}
+
+	// 2. Second connection with SAME key should succeed
+	if err := cb("192.168.1.100:22", dummyAddr, sshKey1); err != nil {
+		t.Fatalf("expected callback to accept matching key, got err: %v", err)
+	}
+
+	// 3. Connection with DIFFERENT key (key2) should fail with mismatch error
+	err = cb("192.168.1.100:22", dummyAddr, sshKey2)
+	if err == nil {
+		t.Fatal("expected error on host key mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "Host-Key-Abweichung") {
+		t.Errorf("expected mismatch error message, got: %v", err)
+	}
+
+	// 4. Reset host key in DB and server struct
+	if err := database.ResetServerHostKey("srv-tofu-1"); err != nil {
+		t.Fatalf("failed to reset host key: %v", err)
+	}
+	server.HostKey = ""
+	server.HostKeyFingerprint = ""
+
+	// 5. Connection with key2 should now succeed via TOFU and record key2
+	if err := cb("192.168.1.100:22", dummyAddr, sshKey2); err != nil {
+		t.Fatalf("expected TOFU to accept key2 after reset, got err: %v", err)
+	}
+
+	fromDB2, err := database.GetServer("srv-tofu-1")
+	if err != nil {
+		t.Fatalf("failed to get server from db: %v", err)
+	}
+	expectedKey2 := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshKey2)))
+	if fromDB2.HostKey != expectedKey2 {
+		t.Errorf("expected new DB host key %q, got %q", expectedKey2, fromDB2.HostKey)
 	}
 }

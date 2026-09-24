@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS servers (
     port INTEGER NOT NULL DEFAULT 22,
     user TEXT NOT NULL DEFAULT 'talend',
     ssh_key_path TEXT NOT NULL,
+    host_key TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'unknown',
     jobs_dir TEXT NOT NULL DEFAULT '/opt/talend/jobs',
     scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts',
@@ -115,6 +116,7 @@ func (db *DB) Migrate() error {
 	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN scripts_dir TEXT NOT NULL DEFAULT '/opt/talend/scripts'")
 	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN env_file TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN keep_releases INTEGER NOT NULL DEFAULT 3")
+	_, _ = db.Exec("ALTER TABLE servers ADD COLUMN host_key TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN env_file TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN is_deployed INTEGER NOT NULL DEFAULT 0")
 	_, _ = db.Exec("ALTER TABLE jobs ADD COLUMN deployed_version TEXT NOT NULL DEFAULT ''")

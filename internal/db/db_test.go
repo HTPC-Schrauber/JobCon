@@ -51,6 +51,33 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 		t.Errorf("expected keep_releases 5, got %d", updatedServer.KeepReleases)
 	}
 
+	// Test HostKey update and reset
+	if fetchedServer.HostKey != "" {
+		t.Errorf("expected empty initial host_key, got %q", fetchedServer.HostKey)
+	}
+	testKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGabcdef1234567890"
+	if err := database.UpdateServerHostKey("srv-01", testKey); err != nil {
+		t.Fatalf("failed to update server host key: %v", err)
+	}
+	withKey, err := database.GetServer("srv-01")
+	if err != nil {
+		t.Fatalf("failed to get server after host key update: %v", err)
+	}
+	if withKey.HostKey != testKey {
+		t.Errorf("expected host_key %q, got %q", testKey, withKey.HostKey)
+	}
+
+	if err := database.ResetServerHostKey("srv-01"); err != nil {
+		t.Fatalf("failed to reset server host key: %v", err)
+	}
+	resetServer, err := database.GetServer("srv-01")
+	if err != nil {
+		t.Fatalf("failed to get server after host key reset: %v", err)
+	}
+	if resetServer.HostKey != "" {
+		t.Errorf("expected empty host_key after reset, got %q", resetServer.HostKey)
+	}
+
 	// Test Job CRUD
 	job := &Job{
 		ID:            "job-01",

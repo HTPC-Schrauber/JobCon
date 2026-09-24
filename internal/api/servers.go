@@ -219,5 +219,41 @@ func (a *API) handleTestServer(w http.ResponseWriter, r *http.Request) {
 		_ = a.db.UpdateServerStatus(id, "offline")
 	}
 
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if res.Success {
+			w.Write([]byte(`<span class="badge badge-success">Online</span>`))
+		} else {
+			errMsg := res.ErrorMessage
+			if errMsg == "" {
+				errMsg = "Verbindung fehlgeschlagen"
+			}
+			w.Write([]byte(`<span class="badge badge-danger" title="` + errMsg + `">Offline</span>`))
+		}
+		return
+	}
+
 	a.jsonResponse(w, http.StatusOK, res)
+}
+
+func (a *API) handleResetServerHostKey(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := a.db.GetServer(id); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			a.jsonError(w, http.StatusNotFound, "server not found")
+			return
+		}
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := a.db.ResetServerHostKey(id); err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	a.jsonResponse(w, http.StatusOK, map[string]string{
+		"message":   "host key reset successfully",
+		"server_id": id,
+	})
 }

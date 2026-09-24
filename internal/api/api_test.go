@@ -241,6 +241,56 @@ func TestAPIServerUsageAndDelete(t *testing.T) {
 	}
 }
 
+func TestAPIResetServerHostKey(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	_ = database.CreateServer(&db.Server{
+		ID:         "srv-reset-1",
+		Name:       "Reset Host Key Node",
+		Host:       "192.168.1.100",
+		Port:       22,
+		User:       "talend",
+		SSHKeyPath: "/tmp/key",
+	})
+	_ = database.UpdateServerHostKey("srv-reset-1", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGdummy")
+
+	// 1. Reset host key without auth -> 401
+	req := httptest.NewRequest("POST", "/api/v1/servers/srv-reset-1/hostkey/reset", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 Unauthorized without token, got %d", rec.Code)
+	}
+
+	// 2. Reset host key with token for non-existent server -> 404
+	req = httptest.NewRequest("POST", "/api/v1/servers/nonexistent/hostkey/reset", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 Not Found for non-existent server, got %d", rec.Code)
+	}
+
+	// 3. Reset host key with token -> 200 OK
+	req = httptest.NewRequest("POST", "/api/v1/servers/srv-reset-1/hostkey/reset", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for reset host key, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify in DB that host_key is now empty
+	srv, err := database.GetServer("srv-reset-1")
+	if err != nil {
+		t.Fatalf("failed to get server: %v", err)
+	}
+	if srv.HostKey != "" {
+		t.Errorf("expected empty host_key after reset, got %q", srv.HostKey)
+	}
+}
+
 func TestAPIDeployConflictAndForce(t *testing.T) {
 	_, mux, database, token := setupTestAPI(t)
 	defer database.Close()

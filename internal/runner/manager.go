@@ -43,6 +43,9 @@ type ExecutionManager struct {
 }
 
 func NewExecutionManager(database *db.DB, storage *storage.LogStorage, sshRunner *SSHRunner, nexusCfg *config.NexusConfig) *ExecutionManager {
+	if sshRunner != nil && database != nil {
+		sshRunner.SetDB(database)
+	}
 	return &ExecutionManager{
 		db:        database,
 		storage:   storage,

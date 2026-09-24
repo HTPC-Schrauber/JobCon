@@ -23,6 +23,9 @@ type API struct {
 }
 
 func NewAPI(database *db.DB, storage *storage.LogStorage, runner *runner.ExecutionManager, ssh *runner.SSHRunner, authMW *auth.Middleware, cfg *config.Config, syncer *nexus.Syncer) *API {
+	if ssh != nil && database != nil {
+		ssh.SetDB(database)
+	}
 	return &API{
 		db:      database,
 		storage: storage,
@@ -77,6 +80,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/servers/{id}", roleWrap(auth.RoleAdmin, a.handleDeleteServer))
 	mux.Handle("POST /api/v1/servers/{id}/test", roleWrap(auth.RoleAdmin, a.handleTestServer))
 	mux.Handle("POST /api/v1/servers/{id}/setup", roleWrap(auth.RoleAdmin, a.handleSetupServer))
+	mux.Handle("POST /api/v1/servers/{id}/hostkey/reset", roleWrap(auth.RoleAdmin, a.handleResetServerHostKey))
 	mux.Handle("GET /api/v1/servers/{id}/usage", roleWrap(auth.RoleAdmin, a.handleServerUsage))
 
 	// Users (Admin only)

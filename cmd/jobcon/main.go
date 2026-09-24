@@ -77,6 +77,7 @@ func main() {
 		cfg.SSHDefaults.KeepaliveIntervalSeconds,
 		cfg.Scripts.Dir,
 	)
+	sshRunner.SetDB(database)
 
 	execManager := runner.NewExecutionManager(database, logStore, sshRunner, &cfg.Nexus)
 

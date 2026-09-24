@@ -18,15 +18,16 @@ import (
 )
 
 type ConnectionTestResult struct {
-	Success          bool   `json:"success"`
-	LatencyMS        int64  `json:"latency_ms"`
-	OSInfo           string `json:"os_info"`
-	TalendDirExists  bool   `json:"talend_dir_exists"`
-	JobsDirExists    bool   `json:"jobs_dir_exists"`
-	ScriptsDirExists bool   `json:"scripts_dir_exists"`
-	ScriptsInstalled bool   `json:"scripts_installed"`
-	Uptime           string `json:"uptime"`
-	ErrorMessage     string `json:"error_message,omitempty"`
+	Success            bool   `json:"success"`
+	LatencyMS          int64  `json:"latency_ms"`
+	OSInfo             string `json:"os_info"`
+	TalendDirExists    bool   `json:"talend_dir_exists"`
+	JobsDirExists      bool   `json:"jobs_dir_exists"`
+	ScriptsDirExists   bool   `json:"scripts_dir_exists"`
+	ScriptsInstalled   bool   `json:"scripts_installed"`
+	Uptime             string `json:"uptime"`
+	HostKeyFingerprint string `json:"host_key_fingerprint,omitempty"`
+	ErrorMessage       string `json:"error_message,omitempty"`
 }
 
 type ServerSetupResult struct {
@@ -43,6 +44,11 @@ type SSHRunner struct {
 	timeout        time.Duration
 	keepaliveInt   time.Duration
 	scriptsDir     string
+	db             *db.DB
+}
+
+func (r *SSHRunner) SetDB(database *db.DB) {
+	r.db = database
 }
 
 func NewSSHRunner(defaultKeyPath string, timeoutSec, keepaliveSec int, scriptsDir ...string) *SSHRunner {
@@ -130,9 +136,44 @@ func (r *SSHRunner) buildClientConfig(server *db.Server) (*ssh.ClientConfig, err
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // For internal enterprise networks
+		HostKeyCallback: r.buildHostKeyCallback(server),
 		Timeout:         r.timeout,
 	}, nil
+}
+
+// buildHostKeyCallback constructs an SSH HostKeyCallback enforcing TOFU (Trust On First Use)
+// for the given server. When server.HostKey is present, it strictly verifies that the presented
+// host key matches. When server.HostKey is empty, the presented key is trusted, persisted to
+// the database (if db is configured), and remembered on the server object.
+func (r *SSHRunner) buildHostKeyCallback(server *db.Server) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if server.HostKey != "" {
+			trustedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(server.HostKey))
+			if err != nil {
+				return fmt.Errorf("ungültiger gespeicherter Host-Key für Server %q: %w", server.Name, err)
+			}
+			if !bytes.Equal(key.Marshal(), trustedKey.Marshal()) {
+				return fmt.Errorf("Host-Key-Abweichung für Server %q (%s): Erwartet %s (%s), erhalten %s (%s) - möglicher Man-in-the-Middle-Angriff oder geänderter Host-Key",
+					server.Name, hostname,
+					trustedKey.Type(), ssh.FingerprintSHA256(trustedKey),
+					key.Type(), ssh.FingerprintSHA256(key))
+			}
+			return nil
+		}
+
+		// TOFU: First use, trust and record host key
+		marshaled := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+		fingerprint := ssh.FingerprintSHA256(key)
+
+		if r.db != nil && server.ID != "" {
+			if err := r.db.UpdateServerHostKey(server.ID, marshaled); err != nil {
+				return fmt.Errorf("Speichern des Host-Keys für Server %q fehlgeschlagen: %w", server.Name, err)
+			}
+		}
+		server.HostKey = marshaled
+		server.HostKeyFingerprint = fingerprint
+		return nil
+	}
 }
 
 // TestConnection verifies SSH access and retrieves host diagnostics
@@ -225,15 +266,23 @@ func (r *SSHRunner) TestConnection(ctx context.Context, server *db.Server) (*Con
 		}
 	}
 
+	fingerprint := server.HostKeyFingerprint
+	if fingerprint == "" && server.HostKey != "" {
+		if pk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(server.HostKey)); err == nil {
+			fingerprint = ssh.FingerprintSHA256(pk)
+		}
+	}
+
 	return &ConnectionTestResult{
-		Success:          true,
-		LatencyMS:        latency,
-		OSInfo:           osInfo,
-		TalendDirExists:  talendExists,
-		JobsDirExists:    jobsDirExists,
-		ScriptsDirExists: scriptsDirExists,
-		ScriptsInstalled: scriptsInstalled,
-		Uptime:           uptime,
+		Success:            true,
+		LatencyMS:          latency,
+		OSInfo:             osInfo,
+		TalendDirExists:    talendExists,
+		JobsDirExists:      jobsDirExists,
+		ScriptsDirExists:   scriptsDirExists,
+		ScriptsInstalled:   scriptsInstalled,
+		Uptime:             uptime,
+		HostKeyFingerprint: fingerprint,
 	}, nil
 }
 

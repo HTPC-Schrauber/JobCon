@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 var (
@@ -21,8 +23,10 @@ type Server struct {
 	Host          string     `json:"host"`
 	Port          int        `json:"port"`
 	User          string     `json:"user"`
-	SSHKeyPath    string     `json:"ssh_key_path"`
-	Status        string     `json:"status"` // "online", "offline", "unknown"
+	SSHKeyPath         string     `json:"ssh_key_path"`
+	HostKey            string     `json:"host_key"`
+	HostKeyFingerprint string     `json:"host_key_fingerprint,omitempty"`
+	Status             string     `json:"status"` // "online", "offline", "unknown"
 	JobsDir       string     `json:"jobs_dir"`
 	ScriptsDir    string     `json:"scripts_dir"`
 	EnvFile       string     `json:"env_file"`
@@ -148,24 +152,41 @@ func (db *DB) CreateServer(s *Server) error {
 		s.KeepReleases = 3
 	}
 
-	query := `INSERT INTO servers (id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, env_file, keep_releases, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := db.Exec(query, s.ID, s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.Status, s.JobsDir, s.ScriptsDir, s.EnvFile, s.KeepReleases, s.CreatedAt, s.UpdatedAt)
+	query := `INSERT INTO servers (id, name, host, port, user, ssh_key_path, host_key, status, jobs_dir, scripts_dir, env_file, keep_releases, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := db.Exec(query, s.ID, s.Name, s.Host, s.Port, s.User, s.SSHKeyPath, s.HostKey, s.Status, s.JobsDir, s.ScriptsDir, s.EnvFile, s.KeepReleases, s.CreatedAt, s.UpdatedAt)
+	if err == nil {
+		s.HostKeyFingerprint = calculateFingerprint(s.HostKey)
+	}
 	return err
 }
 
+func calculateFingerprint(hostKey string) string {
+	if hostKey == "" {
+		return ""
+	}
+	pk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hostKey))
+	if err != nil {
+		return ""
+	}
+	return ssh.FingerprintSHA256(pk)
+}
+
 func (db *DB) GetServer(id string) (*Server, error) {
-	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
+	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, host_key, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
 	var s Server
-	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.HostKey, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
+	}
+	if err == nil {
+		s.HostKeyFingerprint = calculateFingerprint(s.HostKey)
 	}
 	return &s, err
 }
 
 func (db *DB) ListServers() ([]Server, error) {
-	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
+	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, host_key, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +195,30 @@ func (db *DB) ListServers() ([]Server, error) {
 	var servers []Server
 	for rows.Next() {
 		var s Server
-		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.HostKey, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
+		s.HostKeyFingerprint = calculateFingerprint(s.HostKey)
 		servers = append(servers, s)
 	}
 	return servers, rows.Err()
+}
+
+func (db *DB) UpdateServerHostKey(id, hostKey string) error {
+	now := time.Now()
+	res, err := db.Exec(`UPDATE servers SET host_key = ?, updated_at = ? WHERE id = ?`, hostKey, now, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (db *DB) ResetServerHostKey(id string) error {
+	return db.UpdateServerHostKey(id, "")
 }
 
 func (db *DB) UpdateServer(s *Server) error {
