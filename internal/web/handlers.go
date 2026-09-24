@@ -20,12 +20,15 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+var safeIdentifierRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 //go:embed templates/* static/*
 var contentFS embed.FS
@@ -665,6 +668,15 @@ func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 	contextName := r.FormValue("context")
 	paramsRaw := r.FormValue("params")
 
+	if version != "" && !safeIdentifierRe.MatchString(version) {
+		http.Error(w, "Ungültiges Versionsformat", http.StatusBadRequest)
+		return
+	}
+	if contextName != "" && !safeIdentifierRe.MatchString(contextName) {
+		http.Error(w, "Ungültiger Kontextname", http.StatusBadRequest)
+		return
+	}
+
 	params := make(map[string]string)
 	lines := strings.Split(paramsRaw, "\n")
 	for _, l := range lines {
@@ -673,7 +685,13 @@ func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		parts := strings.SplitN(l, "=", 2)
-		params[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		k := strings.TrimSpace(parts[0])
+		v := strings.TrimSpace(parts[1])
+		if !safeIdentifierRe.MatchString(k) {
+			http.Error(w, "Ungültiger Parameter-Schlüssel: "+k, http.StatusBadRequest)
+			return
+		}
+		params[k] = v
 	}
 
 	user := auth.UserFromContext(r.Context())
@@ -694,6 +712,11 @@ func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 func (h *WebHandler) handleWebJobDeploy(w http.ResponseWriter, r *http.Request) {
 	jobID := r.FormValue("job_id")
 	version := r.FormValue("version")
+
+	if version != "" && !safeIdentifierRe.MatchString(version) {
+		http.Error(w, "Ungültiges Versionsformat", http.StatusBadRequest)
+		return
+	}
 
 	user := auth.UserFromContext(r.Context())
 	triggeredBy := "web:unknown"
@@ -773,6 +796,10 @@ func (h *WebHandler) handleWebBulkDeploy(w http.ResponseWriter, r *http.Request)
 	}
 
 	version := strings.TrimSpace(r.FormValue("version"))
+	if version != "" && !safeIdentifierRe.MatchString(version) {
+		http.Error(w, "Ungültiges Versionsformat", http.StatusBadRequest)
+		return
+	}
 
 	user := auth.UserFromContext(r.Context())
 	triggeredBy := "web:unknown"

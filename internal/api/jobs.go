@@ -8,8 +8,11 @@ import (
 	"jobcon/internal/db"
 	"jobcon/internal/runner"
 	"net/http"
+	"regexp"
 	"time"
 )
+
+var safeIdentifierRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 type CreateJobRequest struct {
 	db.Job
@@ -188,6 +191,11 @@ func (a *API) handleDeployJob(w http.ResponseWriter, r *http.Request) {
 	var req DeployRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
+	if req.Version != "" && !safeIdentifierRe.MatchString(req.Version) {
+		a.jsonError(w, http.StatusBadRequest, "invalid version format")
+		return
+	}
+
 	job, err := a.db.GetJob(id)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
@@ -244,6 +252,21 @@ func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req RunRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if req.Version != "" && !safeIdentifierRe.MatchString(req.Version) {
+		a.jsonError(w, http.StatusBadRequest, "invalid version format")
+		return
+	}
+	if req.Context != "" && !safeIdentifierRe.MatchString(req.Context) {
+		a.jsonError(w, http.StatusBadRequest, "invalid context format")
+		return
+	}
+	for k := range req.Params {
+		if !safeIdentifierRe.MatchString(k) {
+			a.jsonError(w, http.StatusBadRequest, "invalid param key: "+k)
+			return
+		}
+	}
 
 	user := auth.UserFromContext(r.Context())
 	triggeredBy := "unknown"

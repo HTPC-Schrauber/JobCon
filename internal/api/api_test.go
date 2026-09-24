@@ -413,3 +413,35 @@ func TestAPIUsersManagement(t *testing.T) {
 	}
 }
 
+func TestAPIValidationRejectsMaliciousInputs(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	server := &db.Server{ID: "srv_val", Name: "Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
+	_ = database.CreateServer(server)
+	job := &db.Job{ID: "job_val", Name: "Test Job", ServerID: server.ID, GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0.0"}
+	_ = database.CreateJob(job)
+
+	// Deploy with malicious version
+	deployReq := `{"version":"1.0.0; reboot"}`
+	req := httptest.NewRequest("POST", "/api/v1/jobs/job_val/deploy", bytes.NewBufferString(deployReq))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for malicious deploy version, got %d", rec.Code)
+	}
+
+	// Run with malicious context
+	runReq := `{"version":"1.0.0","context":"$(whoami)"}`
+	req = httptest.NewRequest("POST", "/api/v1/jobs/job_val/run", bytes.NewBufferString(runReq))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for malicious run context, got %d", rec.Code)
+	}
+}
+

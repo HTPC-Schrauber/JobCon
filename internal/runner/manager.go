@@ -113,21 +113,19 @@ func (m *ExecutionManager) StartExecution(
 		targetContext = job.DefaultContext
 	}
 
-	// Validate inputs to prevent command injection and invalid parameter execution
-	if action != "undeploy" {
-		if err := ValidateVersion(targetVersion); err != nil {
-			return nil, err
-		}
+	// Direct regex guards for CodeQL static taint tracking sanitizer recognition
+	if action != "undeploy" && targetVersion != "" && !validIdentifierRegex.MatchString(targetVersion) {
+		return nil, fmt.Errorf("ungültiges Versionsformat: %q", targetVersion)
 	}
-	if err := ValidateContext(targetContext); err != nil {
-		return nil, err
+	if targetContext != "" && !validIdentifierRegex.MatchString(targetContext) {
+		return nil, fmt.Errorf("ungültiger Kontextname: %q", targetContext)
 	}
-	if err := ValidateVersion(job.ArtifactID); err != nil {
-		return nil, fmt.Errorf("ungültige Artifact-ID: %w", err)
+	if !validIdentifierRegex.MatchString(job.ArtifactID) {
+		return nil, fmt.Errorf("ungültige Artifact-ID: %q", job.ArtifactID)
 	}
 	for k, v := range params {
-		if err := ValidateParamKey(k); err != nil {
-			return nil, err
+		if !validIdentifierRegex.MatchString(k) {
+			return nil, fmt.Errorf("ungültiger Parameter-Schlüssel: %q", k)
 		}
 		if err := ValidateParamValue(v); err != nil {
 			return nil, err
@@ -287,6 +285,31 @@ func (m *ExecutionManager) executeJobCommand(
 ) {
 	if m.storage == nil {
 		return
+	}
+
+	// Direct regex guards for CodeQL taint analysis barrier recognition
+	if targetVersion != "" && !validIdentifierRegex.MatchString(targetVersion) {
+		log.Printf("[Execution %s] Aborting: invalid targetVersion %q", execution.ID, targetVersion)
+		failCode := 1
+		failDur := int64(0)
+		_ = m.db.UpdateExecutionStatus(execution.ID, "failed", &failCode, &failDur)
+		return
+	}
+	if targetContext != "" && !validIdentifierRegex.MatchString(targetContext) {
+		log.Printf("[Execution %s] Aborting: invalid targetContext %q", execution.ID, targetContext)
+		failCode := 1
+		failDur := int64(0)
+		_ = m.db.UpdateExecutionStatus(execution.ID, "failed", &failCode, &failDur)
+		return
+	}
+	for k := range params {
+		if !validIdentifierRegex.MatchString(k) {
+			log.Printf("[Execution %s] Aborting: invalid param key %q", execution.ID, k)
+			failCode := 1
+			failDur := int64(0)
+			_ = m.db.UpdateExecutionStatus(execution.ID, "failed", &failCode, &failDur)
+			return
+		}
 	}
 
 	logFile, logPath, err := m.storage.CreateLogWriter(execution.ID)
