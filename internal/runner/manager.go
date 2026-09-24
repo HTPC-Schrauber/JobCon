@@ -82,6 +82,10 @@ func (m *ExecutionManager) StartExecution(
 	params map[string]string,
 	triggeredBy string,
 ) (*db.Execution, error) {
+	if !validIdentifierRegex.MatchString(jobID) {
+		return nil, fmt.Errorf("ungültige Job-ID: %q", jobID)
+	}
+
 	job, err := m.db.GetJob(jobID)
 	if err != nil {
 		return nil, fmt.Errorf("job not found: %w", err)
@@ -297,6 +301,13 @@ func (m *ExecutionManager) executeJobCommand(
 	}
 	if targetContext != "" && !validIdentifierRegex.MatchString(targetContext) {
 		log.Printf("[Execution %s] Aborting: invalid targetContext %q", execution.ID, targetContext)
+		failCode := 1
+		failDur := int64(0)
+		_ = m.db.UpdateExecutionStatus(execution.ID, "failed", &failCode, &failDur)
+		return
+	}
+	if !validIdentifierRegex.MatchString(job.ArtifactID) {
+		log.Printf("[Execution %s] Aborting: invalid job.ArtifactID %q", execution.ID, job.ArtifactID)
 		failCode := 1
 		failDur := int64(0)
 		_ = m.db.UpdateExecutionStatus(execution.ID, "failed", &failCode, &failDur)

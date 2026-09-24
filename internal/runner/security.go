@@ -9,6 +9,7 @@ import (
 
 var (
 	validIdentifierRegex = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	safeSSHCommandRegex  = regexp.MustCompile(`^('?[a-zA-Z0-9._/-]+jobcon_ctl\.sh'?(\s+(run|deploy|undeploy))?|echo\b)`)
 )
 
 // ShellQuote returns a safely quoted string for POSIX shells using single quotes.

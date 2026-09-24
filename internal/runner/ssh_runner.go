@@ -409,6 +409,14 @@ func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command s
 	session.Stdout = output
 	session.Stderr = output
 
+	// Direct regex barrier guard on command before executing via SSH
+	if !safeSSHCommandRegex.MatchString(command) {
+		if output != nil {
+			fmt.Fprintf(output, "[JobCon Error] Command rejected: unsafe command pattern: %s\n", command)
+		}
+		return -1, fmt.Errorf("refusing to execute command with unsafe pattern: %s", command)
+	}
+
 	// Start command asynchronously to allow context cancellation
 	if err := session.Start(command); err != nil {
 		if output != nil {

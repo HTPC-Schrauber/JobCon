@@ -188,6 +188,10 @@ func (a *API) handleGetJobArtifact(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleDeployJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !safeIdentifierRe.MatchString(id) {
+		a.jsonError(w, http.StatusBadRequest, "invalid job id")
+		return
+	}
 	var req DeployRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -250,6 +254,10 @@ func (a *API) handleDeployJob(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !safeIdentifierRe.MatchString(id) {
+		a.jsonError(w, http.StatusBadRequest, "invalid job id")
+		return
+	}
 	var req RunRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -316,6 +324,10 @@ func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleUndeployJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !safeIdentifierRe.MatchString(id) {
+		a.jsonError(w, http.StatusBadRequest, "invalid job id")
+		return
+	}
 	user := auth.UserFromContext(r.Context())
 	triggeredBy := "unknown"
 	if user != nil {

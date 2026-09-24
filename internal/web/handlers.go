@@ -664,6 +664,10 @@ func (h *WebHandler) handleSetLanguage(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 	jobID := r.FormValue("job_id")
+	if !safeIdentifierRe.MatchString(jobID) {
+		http.Error(w, "Ungültige Job-ID", http.StatusBadRequest)
+		return
+	}
 	version := r.FormValue("version")
 	contextName := r.FormValue("context")
 	paramsRaw := r.FormValue("params")
@@ -711,6 +715,10 @@ func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) handleWebJobDeploy(w http.ResponseWriter, r *http.Request) {
 	jobID := r.FormValue("job_id")
+	if !safeIdentifierRe.MatchString(jobID) {
+		http.Error(w, "Ungültige Job-ID", http.StatusBadRequest)
+		return
+	}
 	version := r.FormValue("version")
 
 	if version != "" && !safeIdentifierRe.MatchString(version) {
@@ -737,6 +745,10 @@ func (h *WebHandler) handleWebJobUndeploy(w http.ResponseWriter, r *http.Request
 	id := r.PathValue("id")
 	if id == "" {
 		id = r.FormValue("job_id")
+	}
+	if !safeIdentifierRe.MatchString(id) {
+		http.Error(w, "Ungültige Job-ID", http.StatusBadRequest)
+		return
 	}
 	job, err := h.db.GetJob(id)
 	if err != nil {
