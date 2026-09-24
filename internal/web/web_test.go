@@ -816,6 +816,17 @@ func TestWebBulkJobActions(t *testing.T) {
 		t.Errorf("expected redirect to /executions, got %s", loc)
 	}
 
+	// 1b. Bulk Run with concurrency > 100 -> should return 400 Bad Request
+	invalidRunForm := url.Values{"job_ids": {"job_b1"}, "concurrency": {"101"}}
+	req = httptest.NewRequest("POST", "/web/jobs/bulk/run", strings.NewReader(invalidRunForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for concurrency > 100, got %d", rec.Code)
+	}
+
 	// 2. Bulk Deploy
 	deployForm := url.Values{
 		"job_ids": {"job_b1,job_b2"},
@@ -1131,7 +1142,7 @@ func TestHighDensityUIAndNexusSyncAndConcurrencySettings(t *testing.T) {
 		t.Errorf("expected 303 redirect after concurrency update, got %d", rec.Code)
 	}
 
-	storedConc, err := database.GetSetting("max_concurrent_jobs", "2")
+	storedConc, err := database.GetSetting("max_concurrent_jobs", "3")
 	if err != nil || storedConc != "5" {
 		t.Errorf("expected stored max_concurrent_jobs='5', got '%s', err: %v", storedConc, err)
 	}

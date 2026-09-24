@@ -531,7 +531,7 @@ Das UI wird via Go `embed.FS` vollständig in das Single-Binary kompiliert und b
        * Button „Nexus jetzt synchronisieren“ zum sofortigen manuellen Abgleich.
        * Einstellbares Synchronisationsintervall in Minuten (Default: 60 Minuten).
      * **Job-Ausführung & Warteschlange:**
-       * Konfigurierbare Standard-Parallelität (`max_concurrent_jobs`, Default: 2) für Bulk-Starts.
+       * Konfigurierbare Standard-Parallelität (`max_concurrent_jobs`, Default: 3, Maximum: 100) für Bulk-Starts.
      * **Log-Aufbewahrung:** Manuelle Speicherbereinigung („🗑️ Alte Logs jetzt bereinigen“).
      * **CI/CD API Tokens:** Erstellen und Widerrufen von Bearer-Tokens für Jenkins.
 

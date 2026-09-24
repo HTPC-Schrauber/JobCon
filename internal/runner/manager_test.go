@@ -118,6 +118,21 @@ func TestStartBulkRunQueue(t *testing.T) {
 			t.Errorf("unexpected execution status: %s", e.Status)
 		}
 	}
+
+	// Test default concurrency (concurrency <= 0)
+	execsDefault, err := m.StartBulkRunQueue(nil, []string{"job-1"}, 0, "test-user")
+	if err != nil {
+		t.Fatalf("StartBulkRunQueue with default concurrency failed: %v", err)
+	}
+	if len(execsDefault) != 1 {
+		t.Fatalf("expected 1 execution, got %d", len(execsDefault))
+	}
+
+	// Test exceeding MaxBulkConcurrency
+	_, err = m.StartBulkRunQueue(nil, []string{"job-1"}, MaxBulkConcurrency+1, "test-user")
+	if err == nil {
+		t.Errorf("expected error when exceeding MaxBulkConcurrency, got nil")
+	}
 }
 
 func TestExecuteJobCommand_FailedSSHKeyWritesErrorToLog(t *testing.T) {

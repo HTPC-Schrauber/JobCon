@@ -16,6 +16,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	DefaultBulkConcurrency = 3
+	MaxBulkConcurrency     = 100
+)
+
 var (
 	ErrJobAlreadyRunning = errors.New("job is already running and concurrency is disabled")
 	ErrExecutionNotFound = errors.New("execution not found")
@@ -173,7 +178,7 @@ func (m *ExecutionManager) StartExecution(
 }
 
 // StartBulkRunQueue queues and executes a list of jobs with controlled concurrency.
-// If concurrency <= 0, the setting 'max_concurrent_jobs' is used (default 2).
+// If concurrency <= 0, the setting 'max_concurrent_jobs' is used (default 3).
 func (m *ExecutionManager) StartBulkRunQueue(
 	ctx context.Context,
 	jobIDs []string,
@@ -181,12 +186,15 @@ func (m *ExecutionManager) StartBulkRunQueue(
 	triggeredBy string,
 ) ([]*db.Execution, error) {
 	if concurrency <= 0 {
-		concurrencyStr, _ := m.db.GetSetting("max_concurrent_jobs", "2")
-		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 {
+		concurrencyStr, _ := m.db.GetSetting("max_concurrent_jobs", strconv.Itoa(DefaultBulkConcurrency))
+		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 && c <= MaxBulkConcurrency {
 			concurrency = c
 		} else {
-			concurrency = 2
+			concurrency = DefaultBulkConcurrency
 		}
+	}
+	if concurrency > MaxBulkConcurrency {
+		return nil, fmt.Errorf("maximale Parallelität ist %d", MaxBulkConcurrency)
 	}
 
 	type queueItem struct {
@@ -253,6 +261,12 @@ func (m *ExecutionManager) StartBulkRunQueue(
 
 	// Launch background worker pool
 	go func(queue []queueItem, limit int) {
+		if limit <= 0 || limit > MaxBulkConcurrency {
+			limit = DefaultBulkConcurrency
+		}
+		if limit > MaxBulkConcurrency {
+			return
+		}
 		sem := make(chan struct{}, limit)
 		var wg sync.WaitGroup
 

@@ -252,7 +252,7 @@
         <form action="/web/settings/concurrency" method="POST" style="display: flex; align-items: flex-end; gap: 12px; max-width: 400px;">
             <div class="form-group" style="margin-bottom: 0; flex: 1;">
                 <label for="maxConcurrentJobs" style="font-size: 11px;">Max. gleichzeitige Jobs</label>
-                <input type="number" id="maxConcurrentJobs" name="max_concurrent_jobs" min="1" max="50" value="{{.MaxConcurrentJobs}}" required>
+                <input type="number" id="maxConcurrentJobs" name="max_concurrent_jobs" min="1" max="100" value="{{.MaxConcurrentJobs}}" required>
             </div>
             <button type="submit" class="btn btn-primary btn-sm" style="height: 35px;">Parallelität speichern</button>
         </form>

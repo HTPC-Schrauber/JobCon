@@ -505,3 +505,26 @@ func TestAPITestNexusSecurity(t *testing.T) {
 	}
 }
 
+func TestAPIBulkRunConcurrencyLimits(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	server := &db.Server{ID: "srv_bulk", Name: "Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
+	_ = database.CreateServer(server)
+	job := &db.Job{ID: "job_bulk", Name: "Test Job", ServerID: server.ID, GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0.0"}
+	_ = database.CreateJob(job)
+
+	// Concurrency > 100 should return 400 Bad Request
+	body := `{"job_ids":["job_bulk"],"concurrency":101}`
+	req := httptest.NewRequest("POST", "/api/v1/jobs/bulk/run", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for concurrency > 100, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+

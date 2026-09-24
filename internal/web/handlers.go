@@ -787,6 +787,10 @@ func (h *WebHandler) handleWebBulkRun(w http.ResponseWriter, r *http.Request) {
 	concurrency := 0
 	if cStr := r.FormValue("concurrency"); cStr != "" {
 		if c, err := strconv.Atoi(cStr); err == nil && c > 0 {
+			if c > runner.MaxBulkConcurrency {
+				http.Error(w, fmt.Sprintf("Ungültige Parallelität: maximal %d erlaubt", runner.MaxBulkConcurrency), http.StatusBadRequest)
+				return
+			}
 			concurrency = c
 		}
 	}
@@ -1478,13 +1482,13 @@ func (h *WebHandler) getNexusRepositories() []config.NexusRepository {
 }
 
 func (h *WebHandler) getMaxConcurrentJobs() int {
-	cStr, err := h.db.GetSetting("max_concurrent_jobs", "2")
+	cStr, err := h.db.GetSetting("max_concurrent_jobs", strconv.Itoa(runner.DefaultBulkConcurrency))
 	if err == nil && cStr != "" {
-		if c, err2 := strconv.Atoi(cStr); err2 == nil && c > 0 {
+		if c, err2 := strconv.Atoi(cStr); err2 == nil && c > 0 && c <= runner.MaxBulkConcurrency {
 			return c
 		}
 	}
-	return 2
+	return runner.DefaultBulkConcurrency
 }
 
 func (h *WebHandler) getNexusSyncStatus() nexus.SyncStatus {
@@ -1524,7 +1528,7 @@ func (h *WebHandler) handleWebNexusInterval(w http.ResponseWriter, r *http.Reque
 
 func (h *WebHandler) handleWebConcurrency(w http.ResponseWriter, r *http.Request) {
 	conStr := strings.TrimSpace(r.FormValue("max_concurrent_jobs"))
-	if c, err := strconv.Atoi(conStr); err == nil && c > 0 {
+	if c, err := strconv.Atoi(conStr); err == nil && c > 0 && c <= runner.MaxBulkConcurrency {
 		_ = h.db.SetSetting("max_concurrent_jobs", strconv.Itoa(c))
 	}
 	http.Redirect(w, r, "/settings/system?success=Gleichzeitige+Jobs+erfolgreich+gespeichert", http.StatusSeeOther)

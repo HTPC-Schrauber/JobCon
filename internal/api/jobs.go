@@ -367,6 +367,11 @@ func (a *API) handleBulkRunJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Concurrency < 0 || req.Concurrency > runner.MaxBulkConcurrency {
+		a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("concurrency must be between 1 and %d", runner.MaxBulkConcurrency))
+		return
+	}
+
 	user := auth.UserFromContext(r.Context())
 	triggeredBy := "unknown"
 	if user != nil {
