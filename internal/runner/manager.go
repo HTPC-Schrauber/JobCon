@@ -113,6 +113,40 @@ func (m *ExecutionManager) StartExecution(
 		targetContext = job.DefaultContext
 	}
 
+	// Validate inputs to prevent command injection and invalid parameter execution
+	if action != "undeploy" {
+		if err := ValidateVersion(targetVersion); err != nil {
+			return nil, err
+		}
+	}
+	if err := ValidateContext(targetContext); err != nil {
+		return nil, err
+	}
+	if err := ValidateVersion(job.ArtifactID); err != nil {
+		return nil, fmt.Errorf("ungültige Artifact-ID: %w", err)
+	}
+	for k, v := range params {
+		if err := ValidateParamKey(k); err != nil {
+			return nil, err
+		}
+		if err := ValidateParamValue(v); err != nil {
+			return nil, err
+		}
+	}
+	envFile := job.EnvFile
+	if envFile == "" {
+		envFile = server.EnvFile
+	}
+	if err := ValidateEnvFile(envFile); err != nil {
+		return nil, err
+	}
+	if err := ValidatePath(server.JobsDir); err != nil {
+		return nil, err
+	}
+	if err := ValidatePath(server.ScriptsDir); err != nil {
+		return nil, err
+	}
+
 	executionID := fmt.Sprintf("exec_%s", uuid.New().String()[:8])
 
 	// Create DB execution record in running state
@@ -176,6 +210,19 @@ func (m *ExecutionManager) StartBulkRunQueue(
 
 		targetVersion := job.ActiveVersion
 		targetContext := job.DefaultContext
+
+		if err := ValidateVersion(targetVersion); err != nil {
+			log.Printf("[BulkRunQueue] Skipping job %s (invalid version %q): %v", id, targetVersion, err)
+			continue
+		}
+		if err := ValidateContext(targetContext); err != nil {
+			log.Printf("[BulkRunQueue] Skipping job %s (invalid context %q): %v", id, targetContext, err)
+			continue
+		}
+		if err := ValidateVersion(job.ArtifactID); err != nil {
+			log.Printf("[BulkRunQueue] Skipping job %s (invalid artifact ID %q): %v", id, job.ArtifactID, err)
+			continue
+		}
 
 		executionID := fmt.Sprintf("exec_%s", uuid.New().String()[:8])
 		execution := &db.Execution{
@@ -279,35 +326,35 @@ func (m *ExecutionManager) executeJobCommand(
 
 	var cmdParts []string
 	if action == "deploy" {
-		cmdParts = append(cmdParts, ctlScript, "deploy",
-			"--job", fmt.Sprintf("%q", job.ArtifactID),
-			"--version", fmt.Sprintf("%q", targetVersion),
-			"--nexus-url", fmt.Sprintf("%q", nexusURL),
-			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
+		cmdParts = append(cmdParts, ShellQuote(ctlScript), "deploy",
+			"--job", ShellQuote(job.ArtifactID),
+			"--version", ShellQuote(targetVersion),
+			"--nexus-url", ShellQuote(nexusURL),
+			"--jobs-dir", ShellQuote(jobsDir),
 			"--keep", fmt.Sprintf("%d", keepReleases),
 		)
 	} else if action == "undeploy" {
-		cmdParts = append(cmdParts, ctlScript, "undeploy",
-			"--job", fmt.Sprintf("%q", job.ArtifactID),
-			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
+		cmdParts = append(cmdParts, ShellQuote(ctlScript), "undeploy",
+			"--job", ShellQuote(job.ArtifactID),
+			"--jobs-dir", ShellQuote(jobsDir),
 		)
 	} else {
-		cmdParts = append(cmdParts, ctlScript, "run",
-			"--job", fmt.Sprintf("%q", job.ArtifactID),
-			"--version", fmt.Sprintf("%q", targetVersion),
-			"--nexus-url", fmt.Sprintf("%q", nexusURL),
-			"--jobs-dir", fmt.Sprintf("%q", jobsDir),
-			"--context", fmt.Sprintf("%q", targetContext),
+		cmdParts = append(cmdParts, ShellQuote(ctlScript), "run",
+			"--job", ShellQuote(job.ArtifactID),
+			"--version", ShellQuote(targetVersion),
+			"--nexus-url", ShellQuote(nexusURL),
+			"--jobs-dir", ShellQuote(jobsDir),
+			"--context", ShellQuote(targetContext),
 		)
 
 		if envFile != "" {
-			cmdParts = append(cmdParts, "--env-file", fmt.Sprintf("%q", envFile))
+			cmdParts = append(cmdParts, "--env-file", ShellQuote(envFile))
 		}
 
 		if len(params) > 0 {
 			cmdParts = append(cmdParts, "--params")
 			for k, v := range params {
-				cmdParts = append(cmdParts, fmt.Sprintf("--context_param %s=%q", k, v))
+				cmdParts = append(cmdParts, "--context_param", ShellQuote(fmt.Sprintf("%s=%s", k, v)))
 			}
 		}
 	}
@@ -315,8 +362,8 @@ func (m *ExecutionManager) executeJobCommand(
 	nexusUser, nexusPass := m.GetNexusCredentials()
 	if nexusUser != "" && nexusPass != "" {
 		cmdParts = append(cmdParts,
-			"--nexus-user", fmt.Sprintf("%q", nexusUser),
-			"--nexus-pass", fmt.Sprintf("%q", nexusPass),
+			"--nexus-user", ShellQuote(nexusUser),
+			"--nexus-pass", ShellQuote(nexusPass),
 		)
 	}
 
@@ -424,8 +471,17 @@ func (m *ExecutionManager) UndeployJobSync(ctx context.Context, jobID string) er
 	if jobsDir == "" {
 		jobsDir = "/opt/talend/jobs"
 	}
+	if err := ValidateVersion(job.ArtifactID); err != nil {
+		return fmt.Errorf("ungültige Artifact-ID: %w", err)
+	}
+	if err := ValidatePath(jobsDir); err != nil {
+		return err
+	}
+	if err := ValidatePath(scriptsDir); err != nil {
+		return err
+	}
 	ctlScript := fmt.Sprintf("%s/jobcon_ctl.sh", strings.TrimRight(scriptsDir, "/"))
-	remoteCommand := fmt.Sprintf("%s undeploy --job %q --jobs-dir %q", ctlScript, job.ArtifactID, jobsDir)
+	remoteCommand := fmt.Sprintf("%s undeploy --job %s --jobs-dir %s", ShellQuote(ctlScript), ShellQuote(job.ArtifactID), ShellQuote(jobsDir))
 	_, err = m.sshRunner.RunCommand(ctx, server, remoteCommand, nil)
 	if err == nil {
 		_ = m.db.SetJobDeployed(jobID, false, "")

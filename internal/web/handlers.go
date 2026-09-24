@@ -684,7 +684,7 @@ func (h *WebHandler) handleWebJobRun(w http.ResponseWriter, r *http.Request) {
 
 	exec, err := h.runner.StartExecution(r.Context(), jobID, "run", version, contextName, params, triggeredBy)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -703,7 +703,7 @@ func (h *WebHandler) handleWebJobDeploy(w http.ResponseWriter, r *http.Request) 
 
 	exec, err := h.runner.StartExecution(r.Context(), jobID, "deploy", version, "", nil, triggeredBy)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

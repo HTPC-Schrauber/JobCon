@@ -233,7 +233,7 @@ func (a *API) handleDeployJob(w http.ResponseWriter, r *http.Request) {
 			a.jsonError(w, http.StatusConflict, err.Error())
 			return
 		}
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -257,7 +257,7 @@ func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
 			a.jsonError(w, http.StatusConflict, err.Error())
 			return
 		}
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

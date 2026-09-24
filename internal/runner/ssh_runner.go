@@ -188,7 +188,7 @@ func (r *SSHRunner) TestConnection(ctx context.Context, server *db.Server) (*Con
 
 	var stdout bytes.Buffer
 	session.Stdout = &stdout
-	cmd := fmt.Sprintf(`echo "---OS---"; uname -srm; echo "---UPTIME---"; uptime; echo "---TALEND---"; [ -d /opt/talend ] && echo "yes" || echo "no"; echo "---JOBS_DIR---"; [ -d %q ] && echo "yes" || echo "no"; echo "---SCRIPTS_DIR---"; [ -d %q ] && echo "yes" || echo "no"; echo "---SCRIPTS_INSTALLED---"; [ -x %q ] && echo "yes" || echo "no"`, jobsDir, scriptsDir, ctlScript)
+	cmd := fmt.Sprintf(`echo "---OS---"; uname -srm; echo "---UPTIME---"; uptime; echo "---TALEND---"; [ -d /opt/talend ] && echo "yes" || echo "no"; echo "---JOBS_DIR---"; [ -d %s ] && echo "yes" || echo "no"; echo "---SCRIPTS_DIR---"; [ -d %s ] && echo "yes" || echo "no"; echo "---SCRIPTS_INSTALLED---"; [ -x %s ] && echo "yes" || echo "no"`, ShellQuote(jobsDir), ShellQuote(scriptsDir), ShellQuote(ctlScript))
 	_ = session.Run(cmd)
 
 	latency := time.Since(start).Milliseconds()
@@ -310,7 +310,7 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 	}
 	var stderrMkdir bytes.Buffer
 	sessionMkdir.Stderr = &stderrMkdir
-	mkdirCmd := fmt.Sprintf("mkdir -p %q %q", jobsDir, scriptsDir)
+	mkdirCmd := fmt.Sprintf("mkdir -p %s %s", ShellQuote(jobsDir), ShellQuote(scriptsDir))
 	if err := sessionMkdir.Run(mkdirCmd); err != nil {
 		sessionMkdir.Close()
 		result.ErrorMessage = fmt.Sprintf("Verzeichnisse konnten nicht angelegt werden (%s): %v (%s)", mkdirCmd, err, strings.TrimSpace(stderrMkdir.String()))
@@ -333,7 +333,7 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 		sessionUpload.Stdin = bytes.NewReader(content)
 		var stderrUpload bytes.Buffer
 		sessionUpload.Stderr = &stderrUpload
-		writeCmd := fmt.Sprintf("cat > %q && chmod 0755 %q", targetFile, targetFile)
+		writeCmd := fmt.Sprintf("cat > %s && chmod 0755 %s", ShellQuote(targetFile), ShellQuote(targetFile))
 		if err := sessionUpload.Run(writeCmd); err != nil {
 			sessionUpload.Close()
 			result.ErrorMessage = fmt.Sprintf("%s konnte nicht übertragen werden: %v (%s)", scriptName, err, strings.TrimSpace(stderrUpload.String()))
@@ -341,7 +341,7 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 		}
 		sessionUpload.Close()
 		installedFiles = append(installedFiles, scriptName)
-		verifyChecks = append(verifyChecks, fmt.Sprintf("[ -x %q ]", targetFile))
+		verifyChecks = append(verifyChecks, fmt.Sprintf("[ -x %s ]", ShellQuote(targetFile)))
 	}
 
 	// 4. Verify scripts on target
