@@ -278,6 +278,33 @@ func (h *WebHandler) RegisterRoutes(mux *http.ServeMux) {
 // PAGES
 // -----------------------------------------------------------------------------
 
+// isCookieSecure determines if the Secure flag should be set on cookies.
+// It returns true if native TLS is enabled, if the incoming request has TLS,
+// if a reverse proxy reports HTTPS (via X-Forwarded-Proto or Forwarded),
+// or if the configured BaseURL specifies HTTPS.
+func (h *WebHandler) isCookieSecure(r *http.Request) bool {
+	if h.cfg != nil {
+		if h.cfg.TLS.Enabled {
+			return true
+		}
+		if strings.HasPrefix(strings.ToLower(h.cfg.Server.BaseURL), "https://") {
+			return true
+		}
+	}
+	if r != nil {
+		if r.TLS != nil {
+			return true
+		}
+		if proto := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(proto, "https") {
+			return true
+		}
+		if fwd := r.Header.Get("Forwarded"); strings.Contains(strings.ToLower(fwd), "proto=https") {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *WebHandler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	if u := auth.UserFromContext(r.Context()); u != nil {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -304,6 +331,7 @@ func (h *WebHandler) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   h.isCookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400, // 24 hours
 	})
@@ -320,6 +348,7 @@ func (h *WebHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   h.isCookieSecure(r),
 		MaxAge:   -1,
 	})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -618,6 +647,7 @@ func (h *WebHandler) handleSetLanguage(w http.ResponseWriter, r *http.Request) {
 		Name:     "jobcon_lang",
 		Value:    lang,
 		Path:     "/",
+		Secure:   h.isCookieSecure(r),
 		MaxAge:   365 * 86400,
 		SameSite: http.SameSiteLaxMode,
 	})

@@ -1313,7 +1313,54 @@ func TestWebLDAPSettingsAndUserManagement(t *testing.T) {
 	}
 }
 
+func TestCookieSecureBehavior(t *testing.T) {
+	handler := &WebHandler{
+		cfg: &config.Config{
+			Server: config.ServerConfig{
+				BaseURL: "http://localhost:8080",
+			},
+		},
+	}
 
+	// 1. Plain HTTP request without headers
+	reqHTTP := httptest.NewRequest("GET", "http://localhost:8080/", nil)
+	if handler.isCookieSecure(reqHTTP) {
+		t.Errorf("expected isCookieSecure to be false for plain HTTP request")
+	}
 
+	// 2. Request behind reverse proxy with X-Forwarded-Proto: https
+	reqProxyHTTPS := httptest.NewRequest("GET", "http://localhost:8080/", nil)
+	reqProxyHTTPS.Header.Set("X-Forwarded-Proto", "https")
+	if !handler.isCookieSecure(reqProxyHTTPS) {
+		t.Errorf("expected isCookieSecure to be true when X-Forwarded-Proto is https")
+	}
 
+	// 3. Request behind reverse proxy with Forwarded: proto=https
+	reqRFCForwarded := httptest.NewRequest("GET", "http://localhost:8080/", nil)
+	reqRFCForwarded.Header.Set("Forwarded", "for=192.0.2.60;proto=https;by=203.0.113.43")
+	if !handler.isCookieSecure(reqRFCForwarded) {
+		t.Errorf("expected isCookieSecure to be true when Forwarded contains proto=https")
+	}
 
+	// 4. Config with native TLS enabled
+	handlerTLS := &WebHandler{
+		cfg: &config.Config{
+			TLS: config.TLSConfig{Enabled: true},
+		},
+	}
+	if !handlerTLS.isCookieSecure(reqHTTP) {
+		t.Errorf("expected isCookieSecure to be true when cfg.TLS.Enabled is true")
+	}
+
+	// 5. Config with HTTPS BaseURL
+	handlerHTTPSBase := &WebHandler{
+		cfg: &config.Config{
+			Server: config.ServerConfig{
+				BaseURL: "https://jobcon.example.com",
+			},
+		},
+	}
+	if !handlerHTTPSBase.isCookieSecure(reqHTTP) {
+		t.Errorf("expected isCookieSecure to be true when cfg.Server.BaseURL is https")
+	}
+}
