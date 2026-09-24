@@ -445,3 +445,63 @@ func TestAPIValidationRejectsMaliciousInputs(t *testing.T) {
 	}
 }
 
+func TestAPITestNexusSecurity(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	// 1. Invalid scheme (ftp://)
+	body := `{"base_url":"ftp://evil.com/nexus"}`
+	req := httptest.NewRequest("POST", "/api/v1/nexus/test", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	var res map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if res["success"] == true {
+		t.Errorf("expected success: false for ftp:// base_url, got %v", res)
+	}
+
+	// 2. Cloud metadata IP (169.254.169.254)
+	body = `{"base_url":"http://169.254.169.254/latest/meta-data"}`
+	req = httptest.NewRequest("POST", "/api/v1/nexus/test", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	res = nil
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if res["success"] == true {
+		t.Errorf("expected success: false for cloud metadata IP, got %v", res)
+	}
+
+	// 3. Valid mock server
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/service/rest/v1/repositories" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	body = `{"base_url":"` + mockServer.URL + `"}`
+	req = httptest.NewRequest("POST", "/api/v1/nexus/test", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	res = nil
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	if res["success"] != true {
+		t.Errorf("expected success: true for mock nexus server, got %v", res)
+	}
+}
+

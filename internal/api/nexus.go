@@ -8,6 +8,7 @@ import (
 	"jobcon/internal/db"
 	"jobcon/internal/nexus"
 	"net/http"
+	"strings"
 )
 
 type NexusTestRequest struct {
@@ -39,10 +40,31 @@ func (a *API) handleGetNexusRepositories(w http.ResponseWriter, r *http.Request)
 
 func (a *API) handleTestNexus(w http.ResponseWriter, r *http.Request) {
 	var req NexusTestRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.jsonResponse(w, http.StatusBadRequest, map[string]any{
+			"success": false,
+			"message": "Ungültiger Request-Body",
+		})
+		return
+	}
 
 	client := a.getNexusClient()
 	if req.BaseURL != "" {
+		req.BaseURL = strings.TrimSpace(req.BaseURL)
+		if !nexus.SafeNexusURLRegex.MatchString(req.BaseURL) {
+			a.jsonResponse(w, http.StatusOK, map[string]any{
+				"success": false,
+				"message": "Ungültige Basis-URL. Erlaubt sind nur gültige HTTP- oder HTTPS-URLs.",
+			})
+			return
+		}
+		if err := nexus.ValidateNexusURL(req.BaseURL); err != nil {
+			a.jsonResponse(w, http.StatusOK, map[string]any{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
 		pass := req.Password
 		if pass == "" && req.Username != "" {
 			savedUser, _ := a.db.GetSetting("nexus_username", a.cfg.Nexus.Username)

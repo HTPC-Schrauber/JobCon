@@ -339,6 +339,23 @@ func TestWebJobCRUDAndSettings(t *testing.T) {
 		t.Errorf("expected error redirect for empty nexus_base_url, got %s", rec.Header().Get("Location"))
 	}
 
+	// 3d. Settings: Malicious / Invalid Scheme Base URL validation
+	maliciousNexusForm := url.Values{
+		"nexus_base_url": {"ftp://evil.com/repo"},
+		"nexus_username": {""},
+	}
+	req = httptest.NewRequest("POST", "/web/settings/nexus", strings.NewReader(maliciousNexusForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: token})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect 303 after malicious nexus update, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Errorf("expected error redirect for malicious nexus_base_url, got %s", rec.Header().Get("Location"))
+	}
+
 	// 4. Settings: Add Nexus Repository via POST /web/settings/nexus/repo/add
 	repoAddForm := url.Values{
 		"repo_id":    {"custom_releases"},

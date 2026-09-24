@@ -1390,6 +1390,14 @@ func (h *WebHandler) handleWebSettingsNexus(w http.ResponseWriter, r *http.Reque
 		http.Redirect(w, r, "/settings/system?error=Nexus+Basis-URL+darf+nicht+leer+sein", http.StatusSeeOther)
 		return
 	}
+	if !nexus.SafeNexusURLRegex.MatchString(baseURL) {
+		http.Redirect(w, r, "/settings/system?error=Ungültige+Nexus+Basis-URL.+Erlaubt+sind+nur+HTTP-+oder+HTTPS-URLs.", http.StatusSeeOther)
+		return
+	}
+	if err := nexus.ValidateNexusURL(baseURL); err != nil {
+		http.Redirect(w, r, "/settings/system?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
 
 	_ = h.db.SetSetting("nexus_base_url", baseURL)
 	if isAnon {

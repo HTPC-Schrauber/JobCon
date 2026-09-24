@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -338,6 +339,28 @@ func TestLiveNexusBrowseTree(t *testing.T) {
 		t.Fatalf("expected artifacts for '*customer*', got 0")
 	}
 	t.Logf("Found %d groups for '*customer*'", len(tree2))
+}
+
+func TestNexusTestConnection_Security(t *testing.T) {
+	// Invalid scheme / URL
+	c1 := NewClient("ftp://evil.com/repo", "admin", "secret")
+	ok, msg, err := c1.TestConnection(context.Background())
+	if ok || err != nil {
+		t.Errorf("expected ok=false for ftp URL, got ok=%v, err=%v", ok, err)
+	}
+	if !strings.Contains(msg, "Ungültige") {
+		t.Errorf("expected invalid URL message, got: %s", msg)
+	}
+
+	// Cloud metadata IP
+	c2 := NewClient("http://169.254.169.254/latest/meta-data", "admin", "secret")
+	ok2, msg2, err2 := c2.TestConnection(context.Background())
+	if ok2 || err2 != nil {
+		t.Errorf("expected ok=false for metadata IP, got ok=%v, err=%v", ok2, err2)
+	}
+	if !strings.Contains(msg2, "nicht gestattet") {
+		t.Errorf("expected blocked host message, got: %s", msg2)
+	}
 }
 
 

@@ -20,14 +20,28 @@ type Client struct {
 }
 
 func NewClient(baseURL, username, password string) *Client {
+	baseURL = strings.TrimSpace(baseURL)
 	baseURL = strings.TrimRight(baseURL, "/")
 	baseURL = strings.TrimSuffix(baseURL, "/repository")
+	baseURL = strings.TrimRight(baseURL, "/")
 	return &Client{
 		BaseURL:  baseURL,
 		Username: username,
 		Password: password,
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("stopped after 5 redirects")
+				}
+				if !SafeNexusURLRegex.MatchString(req.URL.String()) {
+					return fmt.Errorf("redirect to unsafe URL blocked: %s", req.URL.String())
+				}
+				if isBlockedHost(req.URL.Hostname()) {
+					return fmt.Errorf("redirect to blocked host: %s", req.URL.Hostname())
+				}
+				return nil
+			},
 		},
 	}
 }
@@ -60,6 +74,12 @@ type GroupNode struct {
 func (c *Client) TestConnection(ctx context.Context) (bool, string, error) {
 	if c.BaseURL == "" {
 		return false, "Nexus Basis-URL ist nicht konfiguriert", nil
+	}
+	if !SafeNexusURLRegex.MatchString(c.BaseURL) {
+		return false, "Ungültige Nexus Basis-URL", nil
+	}
+	if err := ValidateNexusURL(c.BaseURL); err != nil {
+		return false, err.Error(), nil
 	}
 
 	// First try repositories endpoint which tests both reachability and auth
@@ -124,6 +144,9 @@ func (c *Client) SearchComponents(ctx context.Context, repository, groupFilter, 
 func (c *Client) SearchComponentsAdvanced(ctx context.Context, repository, groupFilter, nameFilter, query string) ([]Component, error) {
 	if c.BaseURL == "" {
 		return nil, fmt.Errorf("nexus base_url is not configured")
+	}
+	if !SafeNexusURLRegex.MatchString(c.BaseURL) {
+		return nil, fmt.Errorf("invalid nexus base_url")
 	}
 
 	cleanQuery := sanitizeNexusQuery(query)
@@ -227,6 +250,9 @@ func (c *Client) SearchComponentsAdvanced(ctx context.Context, repository, group
 func (c *Client) FetchAllComponents(ctx context.Context, repository string) ([]Component, error) {
 	if c.BaseURL == "" {
 		return nil, fmt.Errorf("nexus base_url is not configured")
+	}
+	if !SafeNexusURLRegex.MatchString(c.BaseURL) {
+		return nil, fmt.Errorf("invalid nexus base_url")
 	}
 
 	endpoint := fmt.Sprintf("%s/service/rest/v1/components", c.BaseURL)
