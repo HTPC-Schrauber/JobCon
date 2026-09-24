@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"jobcon/internal/crypto"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,6 +24,11 @@ type Config struct {
 	Scripts     ScriptsConfig     `yaml:"scripts"`
 	Nexus       NexusConfig       `yaml:"nexus"`
 	SSHDefaults SSHDefaultsConfig `yaml:"ssh_defaults"`
+	Security    SecurityConfig    `yaml:"security"`
+}
+
+type SecurityConfig struct {
+	EncryptionKey string `yaml:"encryption_key"`
 }
 
 type EnvironmentConfig struct {
@@ -196,6 +203,11 @@ func LoadConfig(path string) (*Config, error) {
 			}
 			// File does not exist: proceed with defaults
 		} else {
+			if fi, statErr := os.Stat(path); statErr == nil {
+				if fi.Mode().Perm()&0077 != 0 {
+					_ = os.Chmod(path, 0600)
+				}
+			}
 			if err := yaml.Unmarshal(data, cfg); err != nil {
 				return nil, fmt.Errorf("failed to parse yaml config %q: %w", path, err)
 			}
@@ -293,6 +305,13 @@ func LoadConfig(path string) (*Config, error) {
 		} else {
 			cfg.Auth.SessionSecret = "jobcon-insecure-default-secret-change-me"
 		}
+	}
+
+	// Initialize crypto master key
+	if cfg.Security.EncryptionKey != "" {
+		crypto.Init(cfg.Security.EncryptionKey)
+	} else {
+		crypto.Init(cfg.Auth.SessionSecret)
 	}
 
 	// Admin initial password from env

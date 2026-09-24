@@ -150,6 +150,9 @@ Auf den Linux-Zielservern liegt die Ausführungslogik in zwei standardisierten B
 Nimmt alle Parameter via CLI-Argumente entgegen (kein Rückkanal zu JobCon nötig).
 Unterstützt automatisches Einbinden von `.env`-Dateien (entweder über `--env-file <path>` oder standardmäßig aus `/opt/talend/jobs/{job}/.env` bzw. `/opt/talend/jobs/.env`).
 
+> [!IMPORTANT]
+> **Sichere Authentifizierung ohne CLI-Passwörter:** Zugangsdaten für das Nexus-Repository werden **nicht** bei jedem Job-Aufruf über die SSH-Kommandozeile übergeben (kein `--nexus-pass`). Stattdessen legt JobCon beim Server-Setup („Scripte bereitstellen“) oder bei Einstellungsänderungen einmalig die versteckte Datei `/opt/talend/scripts/.nexus_auth` mit strengen Rechten `0600` (nur für den Execution-User lesbar) ab. `jobcon_ctl.sh` liest diese Zugangsdaten beim Artefakt-Download automatisch ein.
+
 #### Befehle:
 1. **`deploy`** – Lädt Release herunter, entpackt versioniert, rotiert die Generations-Symlinks und bereinigt unverlinkte Versionen:
    ```bash
@@ -574,6 +577,14 @@ Authentifizierung via `Authorization: Bearer <API_TOKEN>` oder HTTP BasicAuth.
 ## 9. Konfigurationsdatei (`config.yaml`)
 
 ```yaml
+security:
+  # 32-Byte hex-kodierter Master-Schlüssel zur AES-256-GCM Verschlüsselung von sensiblen Passwörtern
+  # (z. B. Nexus-Passwort, LDAP Bind-Passwort) in der SQLite-Datenbank.
+  # Generierung: openssl rand -hex 32
+  # WICHTIG: config.yaml muss die Dateirechte 0600 (nur Owner lesbar/schreibbar) besitzen!
+  # JobCon erzwingt beim Start automatisch Rechte 0600 auf der Konfigurationsdatei.
+  encryption_key: ""
+
 server:
   bind: "0.0.0.0"
   port: 8080
@@ -730,3 +741,8 @@ WantedBy=multi-user.target
    * **Target-Build & Distributions-Paket:** `build.sh` und `Makefile` erzeugen ein fertiges `target/`-Verzeichnis mit statischem Linux-Binary, `jobcon.service` Systemd-Unit, Beispielkonfiguration und Release-Archiven (`.tar.gz`, `.zip`).
    * **Debian 13 (Trixie Slim) Container:** Multi-Stage Dockerfile mit `golang:trixie` (Builder) und `debian:trixie-slim` (Runtime), gehärtet mit Non-Root User `jobcon` (UID 1000).
    * **Docker Compose:** `compose.yaml` mit gemounteten Host-Volumes (`./scripts`, `./data`, `./config.yaml`, `~/.ssh`). Skript-Anpassungen auf dem Host werden ohne Image-Neubau sofort wirksam.
+12. **Phase 8: Sicherheitshärtung & Secret-Schutz (AES-256-GCM, TOFU HostKey-Pinning, .nexus_auth) [Abgeschlossen]**
+   * **AES-256-GCM Datenbank-Verschlüsselung:** Alle sensiblen Einstellungen in SQLite (Nexus-Passwort, LDAP Bind-Passwort) werden vor dem Speichern mit AES-256-GCM verschlüsselt (`enc:v1:<base64(nonce+ciphertext)>`). Abwärtskompatibilität für Klartext-Einträge aus früheren Versionen bleibt nahtlos erhalten.
+   * **Master Encryption Key & Dateirechte (0600):** Der kryptografische Master-Schlüssel wird in `config.yaml` unter `security.encryption_key` gepflegt (Generierung via `openssl rand -hex 32`). JobCon erzwingt beim Start automatisch Dateirechte `0600` auf `config.yaml`.
+   * **Beseitigung von Passwörtern in SSH-Prozessen:** Keine Weitergabe von Repository-Passwörtern (`--nexus-pass`) in SSH-Kommandozeilen oder Prozesslisten (`ps aux`). Stattdessen wird beim Server-Setup eine versteckte Datei `<scripts_dir>/.nexus_auth` mit Dateirechten `0600` angelegt und synchronisiert, die `jobcon_ctl.sh` lokal ausliest.
+   * **SSH Host-Key Pinning (TOFU):** Schutz vor Man-in-the-Middle-Angriffen durch automatisches Trust-On-First-Use Pinning des SSH-Host-Keys in der SQLite-Datenbank (`server.host_key`). Verbindungstrennung bei Key-Abweichungen und Möglichkeit zum Zurücksetzen über das Server-Sidepanel.

@@ -76,7 +76,7 @@ func (m *ExecutionManager) BuildNexusURL(job *db.Job, version string) string {
 // GetNexusCredentials returns username and password from DB settings or config fallback
 func (m *ExecutionManager) GetNexusCredentials() (string, string) {
 	user, _ := m.db.GetSetting("nexus_username", m.nexusCfg.Username)
-	pass, _ := m.db.GetSetting("nexus_password", m.nexusCfg.Password)
+	pass, _ := m.db.GetEncryptedSetting("nexus_password", m.nexusCfg.Password)
 	return user, pass
 }
 
@@ -410,14 +410,6 @@ func (m *ExecutionManager) executeJobCommand(
 		}
 	}
 
-	nexusUser, nexusPass := m.GetNexusCredentials()
-	if nexusUser != "" && nexusPass != "" {
-		cmdParts = append(cmdParts,
-			"--nexus-user", ShellQuote(nexusUser),
-			"--nexus-pass", ShellQuote(nexusPass),
-		)
-	}
-
 	remoteCommand := strings.Join(cmdParts, " ")
 	execCtx, cancel := context.WithCancel(context.Background())
 
@@ -564,3 +556,24 @@ func (m *ExecutionManager) GetBroadcaster(executionID string) *LogBroadcaster {
 	}
 	return nil
 }
+
+// GetSSHRunner returns the underlying SSHRunner instance
+func (m *ExecutionManager) GetSSHRunner() *SSHRunner {
+	return m.sshRunner
+}
+
+// SyncNexusAuthToAllServers syncs the .nexus_auth file to all configured servers
+func (m *ExecutionManager) SyncNexusAuthToAllServers(ctx context.Context) {
+	if m.sshRunner == nil || m.db == nil {
+		return
+	}
+	servers, err := m.db.ListServers()
+	if err != nil {
+		return
+	}
+	user, pass := m.GetNexusCredentials()
+	for i := range servers {
+		_ = m.sshRunner.SyncNexusAuth(ctx, &servers[i], user, pass)
+	}
+}
+

@@ -83,7 +83,7 @@ func GetEffectiveLDAPConfig(database *db.DB, baseCfg config.LDAPConfig) config.L
 	if val, err := database.GetSetting("ldap_bind_dn", ""); err == nil {
 		cfg.BindDN = val
 	}
-	if val, err := database.GetSetting("ldap_bind_password", ""); err == nil && val != "" {
+	if val, err := database.GetEncryptedSetting("ldap_bind_password", ""); err == nil && val != "" {
 		cfg.BindPassword = val
 	}
 	if val, err := database.GetSetting("ldap_user_bind_template", ""); err == nil {

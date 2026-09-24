@@ -1,87 +1,97 @@
 # JobCon – Lightweight Job Deployment & Execution Engine
 
-JobCon ist eine leichtgewichtige, performante und Linux-native Deployment- und Execution-Engine für versionierte Jobs auf Zielservern.
+**English** | [Deutsch](README.de.md)
 
-Ursprünglich als moderner, schlanker Ersatz für das **Talend Administration Center (TAC) / Job Conductor** konzipiert, entwickelt sich JobCon kontinuierlich zu einer universellen Steuerzentrale für beliebige Batch-, ETL- und Hintergrundjobs (z. B. Talend, Python, Bash-Skripte oder native Linux-Binaries). Aktuell ist als Artefakt-Transportmittel primär **Sonatype Nexus** (Maven ZIP-Archive) angebunden; die modulare Struktur bereitet jedoch bereits den Weg für künftige Repository-Alternativen wie **Git Releases** vor.
+JobCon is a lightweight, high-performance, and Linux-native deployment and execution engine for versioned jobs on target servers.
+
+Originally conceived as a modern, streamlined replacement for the **Talend Administration Center (TAC) / Job Conductor**, JobCon continuously evolves into a universal control hub for batch, ETL, and background jobs (e.g. Talend, Python, Bash scripts, or native Linux binaries). Sonatype Nexus (Maven ZIP archives) serves as the primary artifact repository, with a modular design facilitating future repository integrations such as Git Releases.
 
 ![JobCon Dashboard](docs/screenshots/dashboard.png)
 
-## Kernmerkmale
+## Key Features
 
-* **Single-Binary & Container-Ready:** Entwickelt in reiner Go-Standardbibliothek + CGO-freiem SQLite (`modernc.org/sqlite`). Keine Java-, Node- oder Python-Laufzeitabhängigkeiten auf dem JobCon-Host.
-* **Entkopplung von Deployment & Execution:**
-  * **Deployment & Undeployment:** Download aus Nexus, versionierte Ablage (`releases/{version}`), atomares Umschalten des Symlinks `current` sowie sauberes Undeployen/Entfernen von Zielservern.
-  * **Execution:** Lokaler Start ohne TAC-Overhead via schlanke Starter-Skripte für **JS7 / SOS JobScheduler**, Cron oder über JobCon SSH-Runner.
-  * **Deployment-Status:** Direkte Visualisierung (grüner/grauer Statuspunkt), ob Jobs auf den Zielservern bereitgestellt sind.
-* **Externe Zielserver-Skripte:** Skripte (`jobcon_ctl.sh`, `run_job.sh`) sind **vollständig extern** im Verzeichnis `./scripts/` ausgelagert und nicht im Binary fest einkompiliert. Sie können ad-hoc angepasst oder für alternative Job-Typen erweitert werden.
-* **Multi-Job Steuerung (Bulk Actions):**
-  * Komfortable Mehrfachauswahl via Klick, Shift+Klick (Bereich) und Strg/Cmd+Klick (Toggle) ganz ohne Checkboxen.
-  * Bulk-Aktionsleiste für Direktausführung (`▶ Start` ohne Modal-Popup), Deployment (`🚀 Deploy`) und Undeployment (`🗑️ Undeploy`).
-  * Dedizierter „Details“-Button zum Öffnen des Sidepanels.
-* **Umgebungs-Kennzeichnung (Environment Badge):** Konfigurierbare Anzeige der Umgebung (z. B. `DEV`, `TEST`, `PROD`) inklusive Farbakzentstreifen im UI.
-* **Mehrsprachigkeit (i18n):** Native Unterstützung für Englisch und Deutsch, umschaltbar im Header und benutzerbezogen gespeichert.
-* **Umgebungsvariablen (.env):** Automatisches Sourcing von `.env`-Dateien auf Zielsystemen pro Server oder individuell pro Job.
-* **Authentifizierung & Sicherheit:**
-  * HTTP BasicAuth und Session-Cookies.
-  * Benutzerverwaltung mit `bcrypt`-Passwort-Hashing.
-  * Rollenbasiertes Rechtesystem (`admin`, `operator`, `viewer`).
-  * Vorbereitet für LDAP / Active Directory.
-  * Native TLS-Unterstützung oder Betrieb hinter Nginx/Traefik Reverse-Proxy.
-* **Echtzeit-Transparenz:** Live-Streaming von `stdout` und `stderr` via Server-Sent Events (SSE) in ein schlankes Web-Terminal.
-* **CI/CD Integration (Jenkins):** REST-API mit API-Bearer-Tokens und blockierender Ausführung (`?wait=true`) als moderner MetaServlet-Ersatz.
-* **Einstellungsdialog:** Integrierte Web-UI zur Verwaltung von Benutzern, Execution-Servern (inkl. Live-SSH-Verbindungstest) und Systemparametern.
+* **Single-Binary & Container-Ready:** Built purely with the Go standard library and CGO-free SQLite (`modernc.org/sqlite`). Zero Java, Node, or Python runtime dependencies required on the JobCon host.
+* **Decoupled Deployment & Execution:**
+  * **Deployment & Undeployment:** Direct artifact download from Nexus, versioned release storage (`releases/{version}`), atomic switching of the `current` symlink, and clean undeployment/removal from target hosts.
+  * **Execution:** Local startup without TAC overhead via lean starter scripts for **JS7 / SOS JobScheduler**, cron, or via JobCon's integrated SSH runner.
+  * **Visual Deployment Status:** Immediate status indication (green/gray dot) showing whether jobs are deployed on target servers.
+* **Security & Secret Protection:**
+  * **AES-256-GCM Database Encryption:** Sensitive credentials (Nexus repository password, LDAP bind password) are transparently encrypted with AES-256-GCM before being stored in SQLite.
+  * **Master Key & File Permissions (0600):** The cryptographic master key is configured in `config.yaml` under `security.encryption_key` (generate with `openssl rand -hex 32`). JobCon automatically enforces strict file permissions (`0600`, readable/writable by owner only) on `config.yaml` upon startup.
+  * **Zero Passwords in SSH Commands:** Passwords are never transmitted in SSH command lines or exposed in process tables (`ps aux`). During server setup, JobCon deploys a hidden file `<scripts_dir>/.nexus_auth` with `0600` permissions on the target server, where `jobcon_ctl.sh` reads credentials locally.
+  * **SSH Host-Key Pinning (TOFU):** Protection against Man-in-the-Middle attacks via automatic Trust-On-First-Use pinning of target server host keys in SQLite.
+  * **Role-Based Access Control (RBAC):** User management with `bcrypt` hashing, user roles (`admin`, `operator`, `viewer`), and protection ensuring the last active local administrator cannot be deleted or deactivated.
+  * **Authentication:** HTTP BasicAuth, session cookies, and built-in LDAP / Active Directory support.
+* **External Target Server Scripts:** Execution scripts (`jobcon_ctl.sh`, `run_job.sh`) are **fully external** in `./scripts/` and not embedded into the binary. They can be modified or extended ad-hoc for custom job types without recompiling.
+* **Multi-Job Control (Bulk Actions):**
+  * Seamless multi-selection via Click, Shift+Click (range), and Ctrl/Cmd+Click (toggle) without checkboxes.
+  * Bulk action toolbar for direct start (`▶ Start` without modal dialogs), deployment (`🚀 Deploy`), and undeployment (`🗑️ Undeploy`).
+  * Dedicated "Details" button to open the slide-out sidepanel.
+* **High-Density UI & Nexus Cache:**
+  * Compact operational status strip (jobs, online servers with pulse dot, groups, active runs, Nexus sync status).
+  * Local SQLite cache for Nexus artifacts with fast in-memory search (< 5ms) and scheduled background synchronization.
+  * Queue worker pool to enforce global concurrency limits (`max_concurrent_jobs`).
+* **Environment Badge:** Configurable environment badge (e.g. `DEV`, `TEST`, `PROD`) with matching top accent color strip in the UI.
+* **Multilingual (i18n):** Native English and German localization, switchable directly in the header and persisted per user.
+* **Environment Variables (.env):** Automatic sourcing of `.env` files on target systems per server or individually per job.
+* **Real-Time Transparency:** Live streaming of `stdout` and `stderr` via Server-Sent Events (SSE) into a web terminal.
+* **CI/CD Integration (Jenkins):** REST API with API bearer tokens and blocking execution (`?wait=true`) as a drop-in replacement for TAC MetaServlet calls.
 
 ---
 
-## Bereitstellung & Schnellstart
+## Deployment & Quick Start
 
-JobCon kann wahlweise via **Docker Compose**, als **Systemd-Service auf Linux** oder direkt als **Single-Binary** betrieben werden.
+JobCon can be run via **Docker Compose**, as a **Linux Systemd Service**, or directly as a **Single Binary**.
 
-### Option A: Docker Compose (Empfohlen)
+### Option A: Docker Compose (Recommended)
 
-JobCon läuft in einem gehärteten Container basierend auf **Debian 13 (Trixie Slim)** unter dem Non-Root User `jobcon` (UID 1000).
+JobCon runs in a hardened container based on **Debian 13 (Trixie Slim)** under the non-root user `jobcon` (UID 1000).
 
-1. Konfiguration vorbereiten:
+1. Prepare configuration:
    ```bash
    cp config.example.yaml config.yaml
+   # Generate and insert 256-bit encryption master key:
+   openssl rand -hex 32
+   chmod 0600 config.yaml
    ```
 
-2. Container starten:
+2. Start the container:
    ```bash
    docker compose up -d
    ```
 
-3. Logs einsehen:
+3. View live logs:
    ```bash
    docker compose logs -f
    ```
 
-* **Persistenz:** Datenbank und Logs werden unter `./data` gespeichert.
-* **Externe Skripte:** Das Verzeichnis `./scripts/` ist als Volume gemountet. Änderungen an den Server-Skripten werden sofort ohne Container-Neubau wirksam!
+* **Persistence:** Database and execution logs are stored in `./data`.
+* **External Scripts:** The `./scripts/` directory is mounted as a host volume. Modifications take effect immediately without rebuilding the image!
 
 ---
 
-### Option B: Build & Deployment via `target/` Verzeichnis
+### Option B: Build & Deployment via `target/` Directory
 
-Das Build-Skript erzeugt eine saubere, sofort verteilbare Distributionsstruktur:
+The build script produces a distribution-ready release bundle:
 
 ```bash
 make build
-# oder: ./build.sh
+# or: ./build.sh
 ```
 
-Das erstellte Verzeichnis `target/` enthält:
-* `jobcon`: Statisch gelinktes Linux-Binary.
-* `scripts/`: Externe Zielserver-Skripte (`jobcon_ctl.sh`, `run_job.sh`).
-* `config.example.yaml`: Beispiel-Konfiguration.
-* `jobcon.service`: Systemd-Service-Unit für Linux/Debian.
-* `jobcon-linux-amd64.tar.gz` / `.zip`: Distributionsarchive.
+The generated `target/` directory contains:
+* `jobcon`: Statically linked Linux binary.
+* `scripts/`: External target server scripts (`jobcon_ctl.sh`, `run_job.sh`).
+* `config.example.yaml`: Example configuration.
+* `jobcon.service`: Systemd service unit for Linux/Debian.
+* `jobcon-linux-amd64.tar.gz` / `.zip`: Release archives.
 
-#### Installation als Systemd-Service:
+#### Installation as a Systemd Service:
 ```bash
 sudo cp -r target/* /opt/jobcon/
 sudo useradd -r -s /bin/false -d /opt/jobcon jobcon || true
 sudo chown -R jobcon:jobcon /opt/jobcon
+sudo chmod 0600 /opt/jobcon/config.yaml
 sudo cp /opt/jobcon/jobcon.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now jobcon
@@ -89,48 +99,51 @@ sudo systemctl enable --now jobcon
 
 ---
 
-## Externe Zielserver-Skripte
+## External Target Server Scripts
 
-Die Skripte für Zielserver liegen extern im Verzeichnis `./scripts/` und werden **nicht** in das Binary einkompiliert. Dadurch können sie jederzeit angepasst und um neue Job-Typen erweitert werden:
+The scripts deployed to target servers reside in `./scripts/` and are not embedded into the binary:
 
-1. **`jobcon_ctl.sh`** (Universal-Controller auf dem Zielserver):
-   * Deployt Releases nach `/opt/talend/jobs/{job_name}/releases/{version}`.
-   * Rotiert atomar die Symlinks (`current`, `current-1`, etc.).
-   * Bereinigt unverlinkte Versionen anhand der Retention-Policy.
-   * Bindet `.env`-Dateien ein und startet den Job in einer eigenen Prozessgruppe (`setsid`).
-2. **`run_job.sh`** (Schlanker Starter für JS7 / SOS JobScheduler oder Cron):
-   * Führt das jeweils aktive Release direkt lokal aus:
+1. **`jobcon_ctl.sh`** (Universal Target Controller):
+   * Deploys releases to `/opt/talend/jobs/{job_name}/releases/{version}`.
+   * Atomically rotates symlinks (`current`, `current-1`, etc.).
+   * Purges unlinked releases according to the retention policy.
+   * Securely reads repository credentials from `/opt/talend/scripts/.nexus_auth` (0600).
+   * Sources `.env` files and starts jobs in dedicated process groups (`setsid`).
+2. **`run_job.sh`** (Lean Starter for JS7 / SOS JobScheduler or Cron):
+   * Executes the active release directly on the local machine:
      ```bash
-     /opt/talend/scripts/run_job.sh <job_name> [optionale params...]
+     /opt/talend/scripts/run_job.sh <job_name> [optional params...]
      ```
 
-Beim Einrichten eines Servers über die Web-UI oder API lädt JobCon automatisch alle `.sh`-Skripte aus dem konfigurierten Skriptverzeichnis (`./scripts`) per SSH auf den Zielserver.
+When setting up a server through the Web UI ("Deploy Scripts") or API, JobCon automatically transfers all `.sh` scripts and the encrypted `.nexus_auth` file to the target server via SSH.
 
 ---
 
-## REST-API Übersicht
+## REST API Overview
 
-Alle API-Aufrufe erfordern Authentifizierung via `Authorization: Bearer <TOKEN>` oder HTTP BasicAuth.
+All API endpoints require authentication via `Authorization: Bearer <TOKEN>` or HTTP BasicAuth.
 
-| Methode | Endpunkt | Beschreibung |
+| Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/healthz` | Health-Check (ohne Auth) |
-| `GET` | `/api/v1/jobs` | Liste aller Jobs |
-| `POST` | `/api/v1/jobs` | Neuen Job anlegen (Admin) |
-| `DELETE` | `/api/v1/jobs/{id}` | Job löschen (optional `?undeploy=true`) |
-| `POST` | `/api/v1/jobs/{id}/deploy` | Version auf Zielserver installieren |
-| `POST` | `/api/v1/jobs/{id}/undeploy` | Job vom Zielserver entfernen |
-| `POST` | `/api/v1/jobs/{id}/run` | Job starten (optional mit `?wait=true`) |
-| `POST` | `/api/v1/jobs/bulk/run` | Mehrere Jobs gleichzeitig starten |
-| `POST` | `/api/v1/jobs/bulk/deploy` | Mehrere Jobs gleichzeitig deployen |
-| `POST` | `/api/v1/jobs/bulk/undeploy` | Mehrere Jobs gleichzeitig undeployen |
-| `GET` | `/api/v1/jobs/{id}/artifact` | Nexus Download-URL und Metadaten |
-| `GET` | `/api/v1/executions` | Ausführungshistorie |
-| `GET` | `/api/v1/executions/{id}/logs` | Logs als Plain-Text oder SSE |
-| `POST` | `/api/v1/executions/{id}/abort` | Laufende Ausführung abbrechen |
-| `POST` | `/api/v1/servers/{id}/test` | SSH-Verbindung zum Zielserver prüfen |
+| `GET` | `/healthz` | Health check (unauthenticated) |
+| `GET` | `/api/v1/jobs` | List configured jobs |
+| `POST` | `/api/v1/jobs` | Create job (Admin) |
+| `DELETE` | `/api/v1/jobs/{id}` | Delete job (optional `?undeploy=true`) |
+| `POST` | `/api/v1/jobs/{id}/deploy` | Deploy version to target server |
+| `POST` | `/api/v1/jobs/{id}/undeploy` | Remove job from target server |
+| `POST` | `/api/v1/jobs/{id}/run` | Execute job (optional `?wait=true`) |
+| `POST` | `/api/v1/jobs/bulk/run` | Execute multiple jobs simultaneously |
+| `POST` | `/api/v1/jobs/bulk/deploy` | Deploy multiple jobs simultaneously |
+| `POST` | `/api/v1/jobs/bulk/undeploy` | Undeploy multiple jobs simultaneously |
+| `GET` | `/api/v1/nexus/artifacts` | Query cached Nexus artifacts |
+| `POST` | `/api/v1/nexus/sync` | Trigger immediate background artifact sync |
+| `GET` | `/api/v1/jobs/{id}/artifact` | Get Nexus download URL and metadata |
+| `GET` | `/api/v1/executions` | Execution history |
+| `GET` | `/api/v1/executions/{id}/logs` | Stream logs as plain text or SSE |
+| `POST` | `/api/v1/executions/{id}/abort` | Abort a running execution |
+| `POST` | `/api/v1/servers/{id}/test` | Test SSH connectivity to target server |
 
-### Beispiel: Jenkins Pipeline Aufruf (Blocking)
+### Example: Jenkins Pipeline Call (Blocking)
 ```bash
 curl -X POST "http://jobcon:8080/api/v1/jobs/sync_sap/run?wait=true" \
      -H "Authorization: Bearer ${JOBCON_TOKEN}" \
@@ -140,40 +153,12 @@ curl -X POST "http://jobcon:8080/api/v1/jobs/sync_sap/run?wait=true" \
 
 ---
 
-## Linux Systemd-Installation
+## Development Note
 
-1. Binary kopieren:
-   ```bash
-   sudo cp jobcon /usr/local/bin/
-   sudo chmod +x /usr/local/bin/jobcon
-   ```
-2. Konfiguration anlegen:
-   ```bash
-   sudo mkdir -p /etc/jobcon /var/lib/jobcon/data /var/lib/jobcon/logs
-   sudo cp config.example.yaml /etc/jobcon/config.yaml
-   ```
-3. Benutzer und Rechte:
-   ```bash
-   sudo useradd -r -s /bin/false jobcon
-   sudo chown -R jobcon:jobcon /var/lib/jobcon /etc/jobcon
-   ```
-4. Service-Unit installieren:
-   ```bash
-   sudo cp packaging/jobcon.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now jobcon
-   ```
+This project was developed with the assistance of Artificial Intelligence (AI).
 
 ---
 
-## Hinweis zur Entwicklung
+## License
 
-Dieses Projekt wurde mit Unterstützung von Künstlicher Intelligenz (KI) entwickelt.
-
----
-
-## Lizenz
-
-Dieses Projekt ist unter der [GNU General Public License v3.0](LICENSE) lizenziert.
-
-
+This project is licensed under the [GNU General Public License v3.0](LICENSE).

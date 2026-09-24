@@ -585,7 +585,7 @@ func (h *WebHandler) handleSettingsSystem(w http.ResponseWriter, r *http.Request
 
 	baseURL, _ := h.db.GetSetting("nexus_base_url", h.cfg.Nexus.BaseURL)
 	nexusUser, _ := h.db.GetSetting("nexus_username", h.cfg.Nexus.Username)
-	nexusPass, _ := h.db.GetSetting("nexus_password", h.cfg.Nexus.Password)
+	nexusPass, _ := h.db.GetEncryptedSetting("nexus_password", h.cfg.Nexus.Password)
 	anonSetting, _ := h.db.GetSetting("nexus_anonymous", "")
 
 	isAnonymous := false
@@ -1260,7 +1260,7 @@ func (h *WebHandler) handleWebSettingsLDAP(w http.ResponseWriter, r *http.Reques
 
 	_ = h.db.SetSetting("ldap_bind_dn", bindDN)
 	if strings.TrimSpace(bindPass) != "" {
-		_ = h.db.SetSetting("ldap_bind_password", bindPass)
+		_ = h.db.SetEncryptedSetting("ldap_bind_password", bindPass)
 	}
 	_ = h.db.SetSetting("ldap_user_bind_template", userBindTpl)
 	_ = h.db.SetSetting("ldap_base_dn", baseDN)
@@ -1407,13 +1407,18 @@ func (h *WebHandler) handleWebSettingsNexus(w http.ResponseWriter, r *http.Reque
 	if isAnon {
 		_ = h.db.SetSetting("nexus_anonymous", "true")
 		_ = h.db.SetSetting("nexus_username", "")
-		_ = h.db.SetSetting("nexus_password", "")
+		_ = h.db.SetEncryptedSetting("nexus_password", "")
 	} else {
 		_ = h.db.SetSetting("nexus_anonymous", "false")
 		_ = h.db.SetSetting("nexus_username", nexusUser)
 		if strings.TrimSpace(nexusPass) != "" {
-			_ = h.db.SetSetting("nexus_password", nexusPass)
+			_ = h.db.SetEncryptedSetting("nexus_password", nexusPass)
 		}
+	}
+
+	// Trigger background sync of .nexus_auth to all registered servers
+	if h.runner != nil {
+		go h.runner.SyncNexusAuthToAllServers(context.Background())
 	}
 
 	http.Redirect(w, r, "/settings/system?success=Nexus-Einstellungen+erfolgreich+gespeichert", http.StatusSeeOther)

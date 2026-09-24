@@ -228,3 +228,85 @@ func TestRunJobEnvSourcing(t *testing.T) {
 		t.Errorf("expected sourced env vars in output, got: %s", outStr)
 	}
 }
+
+func TestJobconCtlNexusAuthFile(t *testing.T) {
+	origScript, err := filepath.Abs("jobcon_ctl.sh")
+	if err != nil {
+		t.Fatalf("failed to find jobcon_ctl.sh: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	scriptsDir := filepath.Join(tmpDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		t.Fatalf("failed to create scripts dir: %v", err)
+	}
+
+	// Copy jobcon_ctl.sh to scriptsDir so it can find .nexus_auth next to it
+	scriptContent, err := os.ReadFile(origScript)
+	if err != nil {
+		t.Fatalf("failed to read original script: %v", err)
+	}
+	targetScript := filepath.Join(scriptsDir, "jobcon_ctl.sh")
+	if err := os.WriteFile(targetScript, scriptContent, 0755); err != nil {
+		t.Fatalf("failed to copy script: %v", err)
+	}
+
+	baseDir := filepath.Join(tmpDir, "talend")
+	jobName := "auth_job"
+	zipContent := createZip(t, jobName)
+
+	var authHeaderReceived string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != "nexus-admin" || p != "secret-pass" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		authHeaderReceived = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write(zipContent)
+	}))
+	defer ts.Close()
+
+	// 1. Without .nexus_auth or CLI flags, download must fail (401)
+	cmdFail := exec.Command("/bin/bash", targetScript, "deploy",
+		"--job", jobName,
+		"--version", "1.0.0",
+		"--nexus-url", ts.URL+"/job.zip",
+		"--base-dir", baseDir,
+	)
+	if out, err := cmdFail.CombinedOutput(); err == nil {
+		t.Fatalf("expected deploy to fail without credentials, but it succeeded: %s", string(out))
+	}
+
+	// 2. Create .nexus_auth with correct credentials
+	nexusAuthPath := filepath.Join(scriptsDir, ".nexus_auth")
+	authContent := "NEXUS_USER=\"nexus-admin\"\nNEXUS_PASS=\"secret-pass\"\n"
+	if err := os.WriteFile(nexusAuthPath, []byte(authContent), 0600); err != nil {
+		t.Fatalf("failed to write .nexus_auth: %v", err)
+	}
+
+	cmdSuccess := exec.Command("/bin/bash", targetScript, "deploy",
+		"--job", jobName,
+		"--version", "1.0.0",
+		"--nexus-url", ts.URL+"/job.zip",
+		"--base-dir", baseDir,
+	)
+	if out, err := cmdSuccess.CombinedOutput(); err != nil {
+		t.Fatalf("deploy with .nexus_auth failed: %v\nOutput: %s", err, string(out))
+	}
+
+	if authHeaderReceived == "" {
+		t.Errorf("expected Basic Auth header to be received by test server")
+	}
+
+	// Verify file permissions on .nexus_auth are 0600
+	info, err := os.Stat(nexusAuthPath)
+	if err != nil {
+		t.Fatalf("failed to stat .nexus_auth: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("expected 0600 permissions on .nexus_auth, got %o", info.Mode().Perm())
+	}
+}
+

@@ -2,7 +2,10 @@ package db
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"jobcon/internal/crypto"
 )
 
 func TestDBMigrationsAndCRUD(t *testing.T) {
@@ -608,6 +611,78 @@ func TestLocalAdminProtectionAndLDAPUsers(t *testing.T) {
 	// LDAP user can be deleted without issue
 	if err := database.DeleteUser("u-ldap-1"); err != nil {
 		t.Fatalf("failed to delete ldap user: %v", err)
+	}
+}
+
+func TestEncryptedSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_crypto.db")
+
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Initialize crypto with a known 32-byte key
+	crypto.Init("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+
+	// 1. Setting and getting encrypted value
+	plainSecret := "SuperSecretPassword123!"
+	if err := database.SetEncryptedSetting("nexus_password", plainSecret); err != nil {
+		t.Fatalf("failed to set encrypted setting: %v", err)
+	}
+
+	// Raw setting in DB must start with "enc:v1:"
+	rawVal, err := database.GetSetting("nexus_password", "")
+	if err != nil {
+		t.Fatalf("failed to get raw setting: %v", err)
+	}
+	if !strings.HasPrefix(rawVal, "enc:v1:") {
+		t.Errorf("expected raw value to be prefixed with 'enc:v1:', got %q", rawVal)
+	}
+
+	// GetEncryptedSetting must return the decrypted plaintext
+	gotSecret, err := database.GetEncryptedSetting("nexus_password", "")
+	if err != nil {
+		t.Fatalf("failed to get encrypted setting: %v", err)
+	}
+	if gotSecret != plainSecret {
+		t.Errorf("expected decrypted secret %q, got %q", plainSecret, gotSecret)
+	}
+
+	// 2. Legacy plaintext fallback:
+	// If a setting was saved without encryption in an older version, GetEncryptedSetting should return it directly
+	if err := database.SetSetting("ldap_bind_password", "PlainOldPassword"); err != nil {
+		t.Fatalf("failed to set legacy setting: %v", err)
+	}
+	legacyVal, err := database.GetEncryptedSetting("ldap_bind_password", "")
+	if err != nil {
+		t.Fatalf("failed to get legacy setting: %v", err)
+	}
+	if legacyVal != "PlainOldPassword" {
+		t.Errorf("expected legacy secret 'PlainOldPassword', got %q", legacyVal)
+	}
+
+	// 3. Default value fallback
+	defVal, err := database.GetEncryptedSetting("non_existing_key", "default_val")
+	if err != nil {
+		t.Fatalf("unexpected error on default fallback: %v", err)
+	}
+	if defVal != "default_val" {
+		t.Errorf("expected 'default_val', got %q", defVal)
+	}
+
+	// 4. Empty value storage
+	if err := database.SetEncryptedSetting("nexus_password", ""); err != nil {
+		t.Fatalf("failed to set empty encrypted setting: %v", err)
+	}
+	emptyVal, err := database.GetEncryptedSetting("nexus_password", "none")
+	if err != nil {
+		t.Fatalf("failed to get empty encrypted setting: %v", err)
+	}
+	if emptyVal != "" {
+		t.Errorf("expected empty string, got %q", emptyVal)
 	}
 }
 

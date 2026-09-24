@@ -20,7 +20,7 @@ type NexusTestRequest struct {
 func (a *API) getNexusClient() *nexus.Client {
 	baseURL, _ := a.db.GetSetting("nexus_base_url", a.cfg.Nexus.BaseURL)
 	username, _ := a.db.GetSetting("nexus_username", a.cfg.Nexus.Username)
-	password, _ := a.db.GetSetting("nexus_password", a.cfg.Nexus.Password)
+	password, _ := a.db.GetEncryptedSetting("nexus_password", a.cfg.Nexus.Password)
 	return nexus.NewClient(baseURL, username, password)
 }
 
@@ -69,7 +69,7 @@ func (a *API) handleTestNexus(w http.ResponseWriter, r *http.Request) {
 		if pass == "" && req.Username != "" {
 			savedUser, _ := a.db.GetSetting("nexus_username", a.cfg.Nexus.Username)
 			if req.Username == savedUser {
-				pass, _ = a.db.GetSetting("nexus_password", a.cfg.Nexus.Password)
+				pass, _ = a.db.GetEncryptedSetting("nexus_password", a.cfg.Nexus.Password)
 			}
 		}
 		client = nexus.NewClient(req.BaseURL, req.Username, pass)

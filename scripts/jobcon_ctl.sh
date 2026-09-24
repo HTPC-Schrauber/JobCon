@@ -149,6 +149,41 @@ find_run_script() {
     return 1
 }
 
+# Helper function to load nexus credentials from .nexus_auth if not provided via flags
+load_nexus_auth() {
+    if [[ -n "$NEXUS_USER" && -n "$NEXUS_PASS" ]]; then
+        return 0
+    fi
+
+    local auth_file=""
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+    if [[ -f "${script_dir}/.nexus_auth" ]]; then
+        auth_file="${script_dir}/.nexus_auth"
+    elif [[ -f "${BASE_DIR}/scripts/.nexus_auth" ]]; then
+        auth_file="${BASE_DIR}/scripts/.nexus_auth"
+    elif [[ -f "${BASE_DIR}/.nexus_auth" ]]; then
+        auth_file="${BASE_DIR}/.nexus_auth"
+    fi
+
+    if [[ -n "$auth_file" ]]; then
+        # Ensure file permissions are restricted to owner (0600)
+        chmod 600 "$auth_file" 2>/dev/null || true
+
+        while IFS='=' read -r key val || [[ -n "$key" ]]; do
+            key=$(echo "$key" | tr -d '[:space:]')
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            val=$(echo "$val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+            if [[ "$key" == "NEXUS_USER" && -z "$NEXUS_USER" ]]; then
+                NEXUS_USER="$val"
+            elif [[ "$key" == "NEXUS_PASS" && -z "$NEXUS_PASS" ]]; then
+                NEXUS_PASS="$val"
+            fi
+        done < "$auth_file"
+    fi
+}
+
 # ------------------------------------------------------------------------------
 # DEPLOY ACTION
 # ------------------------------------------------------------------------------
@@ -157,6 +192,8 @@ do_deploy() {
         echo "ERROR: --version is required for deploy." >&2
         exit 1
     fi
+
+    load_nexus_auth
 
     local target_version_dir="${RELEASES_DIR}/${JOB_VERSION}"
 

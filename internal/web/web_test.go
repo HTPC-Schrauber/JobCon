@@ -276,9 +276,13 @@ func TestWebJobCRUDAndSettings(t *testing.T) {
 	if userSetting != "nexus_user_test" {
 		t.Errorf("expected updated nexus_username, got %s", userSetting)
 	}
-	passSetting, _ := database.GetSetting("nexus_password", "")
+	passSetting, _ := database.GetEncryptedSetting("nexus_password", "")
 	if passSetting != "secret123" {
 		t.Errorf("expected updated nexus_password, got %s", passSetting)
+	}
+	rawPass, _ := database.GetSetting("nexus_password", "")
+	if !strings.HasPrefix(rawPass, "enc:v1:") {
+		t.Errorf("expected raw nexus_password in DB to be encrypted with enc:v1:, got %s", rawPass)
 	}
 
 	// 3b. Settings: Update Nexus to anonymous (with nexus_anonymous checkbox)
@@ -305,7 +309,7 @@ func TestWebJobCRUDAndSettings(t *testing.T) {
 	if userSetting != "" {
 		t.Errorf("expected empty nexus_username for anonymous access, got %q", userSetting)
 	}
-	passSetting, _ = database.GetSetting("nexus_password", "not-empty")
+	passSetting, _ = database.GetEncryptedSetting("nexus_password", "not-empty")
 	if passSetting != "" {
 		t.Errorf("expected cleared nexus_password for anonymous access, got %q", passSetting)
 	}

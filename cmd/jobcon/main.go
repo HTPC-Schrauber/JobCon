@@ -90,7 +90,7 @@ func main() {
 	nexusSyncer := nexus.NewSyncer(database, cfg, func() *nexus.Client {
 		baseURL, _ := database.GetSetting("nexus_base_url", cfg.Nexus.BaseURL)
 		username, _ := database.GetSetting("nexus_username", cfg.Nexus.Username)
-		password, _ := database.GetSetting("nexus_password", cfg.Nexus.Password)
+		password, _ := database.GetEncryptedSetting("nexus_password", cfg.Nexus.Password)
 		return nexus.NewClient(baseURL, username, password)
 	})
 

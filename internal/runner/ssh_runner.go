@@ -403,11 +403,73 @@ func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*Server
 		}
 	}
 
+	// 5. Deploy / sync .nexus_auth if db is available
+	if r.db != nil {
+		nexusUser, _ := r.db.GetSetting("nexus_username", "")
+		nexusPass, _ := r.db.GetEncryptedSetting("nexus_password", "")
+		_ = r.syncNexusAuthWithClient(client, scriptsDir, nexusUser, nexusPass)
+	}
+
 	result.Success = true
 	result.InstalledFiles = installedFiles
 	result.Message = fmt.Sprintf("Verzeichnisse (%s, %s) erfolgreich eingerichtet und Scripte (%s) mit Rechten 0755 installiert.",
 		jobsDir, scriptsDir, strings.Join(installedFiles, ", "))
 	return result, nil
+}
+
+// syncNexusAuthWithClient creates or deletes .nexus_auth on the target host using an existing ssh.Client
+func (r *SSHRunner) syncNexusAuthWithClient(client *ssh.Client, scriptsDir, user, pass string) error {
+	cleanScriptsDir := strings.TrimRight(scriptsDir, "/")
+	authFile := fmt.Sprintf("%s/.nexus_auth", cleanScriptsDir)
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("SSH session error for nexus auth: %w", err)
+	}
+	defer session.Close()
+
+	if user != "" && pass != "" {
+		content := fmt.Sprintf("NEXUS_USER=%s\nNEXUS_PASS=%s\n", ShellQuote(user), ShellQuote(pass))
+		session.Stdin = strings.NewReader(content)
+		var stderr bytes.Buffer
+		session.Stderr = &stderr
+		cmd := fmt.Sprintf("cat > %s && chmod 0600 %s", ShellQuote(authFile), ShellQuote(authFile))
+		if err := session.Run(cmd); err != nil {
+			return fmt.Errorf("failed to write %s: %w (%s)", authFile, err, strings.TrimSpace(stderr.String()))
+		}
+	} else {
+		cmd := fmt.Sprintf("rm -f %s", ShellQuote(authFile))
+		_ = session.Run(cmd)
+	}
+	return nil
+}
+
+// SyncNexusAuth deploys or updates .nexus_auth with 0600 permissions to the remote server
+func (r *SSHRunner) SyncNexusAuth(ctx context.Context, server *db.Server, user, pass string) error {
+	sshConfig, err := r.buildClientConfig(server)
+	if err != nil {
+		return fmt.Errorf("SSH-Konfiguration ungültig: %w", err)
+	}
+
+	addr := net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
+	conn, err := net.DialTimeout("tcp", addr, r.timeout)
+	if err != nil {
+		return fmt.Errorf("TCP-Verbindung fehlgeschlagen: %w", err)
+	}
+	defer conn.Close()
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshConfig)
+	if err != nil {
+		return fmt.Errorf("SSH-Handshake fehlgeschlagen: %w", err)
+	}
+	client := ssh.NewClient(c, chans, reqs)
+	defer client.Close()
+
+	scriptsDir := server.ScriptsDir
+	if scriptsDir == "" {
+		scriptsDir = "/opt/talend/scripts"
+	}
+	return r.syncNexusAuthWithClient(client, scriptsDir, user, pass)
 }
 
 // RunCommand executes a command remotely on the target server, streaming output to writer
@@ -461,9 +523,9 @@ func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command s
 	// Direct regex barrier guard on command before executing via SSH
 	if !safeSSHCommandRegex.MatchString(command) {
 		if output != nil {
-			fmt.Fprintf(output, "[JobCon Error] Command rejected: unsafe command pattern: %s\n", command)
+			fmt.Fprintf(output, "[JobCon Error] Command rejected: unsafe command pattern\n")
 		}
-		return -1, fmt.Errorf("refusing to execute command with unsafe pattern: %s", command)
+		return -1, errors.New("refusing to execute command with unsafe pattern")
 	}
 
 	// Start command asynchronously to allow context cancellation

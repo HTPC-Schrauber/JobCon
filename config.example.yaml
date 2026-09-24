@@ -66,3 +66,11 @@ ssh_defaults:
   key_path: "~/.ssh/id_ed25519"
   timeout_seconds: 30
   keepalive_interval_seconds: 30
+
+security:
+  # Master-Key zur symmetrischen AES-256-GCM Verschlüsselung von Secrets in der SQLite-Datenbank
+  # (z. B. Nexus- und LDAP-Passwörter).
+  # WICHTIG: Die Datei config.yaml MUSS mit Dateirechten 0600 (chmod 0600 config.yaml) geschützt werden!
+  # Erzeugen eines sicheren 32-Byte (256-Bit) Keys im Linux-Terminal:
+  #   openssl rand -hex 32
+  encryption_key: ""

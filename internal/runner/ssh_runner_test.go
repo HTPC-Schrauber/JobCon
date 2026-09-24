@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/pem"
+	"fmt"
 	"jobcon/internal/db"
 	"net"
 	"os"
@@ -264,3 +266,90 @@ func TestHostKeyCallback_TOFUAndMismatch(t *testing.T) {
 		t.Errorf("expected new DB host key %q, got %q", expectedKey2, fromDB2.HostKey)
 	}
 }
+
+func TestRunCommand_RejectionSanitized(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatalf("failed to create signer: %v", err)
+	}
+
+	serverConfig := &ssh.ServerConfig{
+		NoClientAuth: true,
+	}
+	serverConfig.AddHostKey(signer)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		nConn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer nConn.Close()
+		sConn, chans, reqs, err := ssh.NewServerConn(nConn, serverConfig)
+		if err != nil {
+			return
+		}
+		defer sConn.Close()
+		go ssh.DiscardRequests(reqs)
+		for newChannel := range chans {
+			channel, requests, err := newChannel.Accept()
+			if err != nil {
+				continue
+			}
+			go func(in <-chan *ssh.Request) {
+				for req := range in {
+					_ = req.Reply(true, nil)
+				}
+			}(requests)
+			_ = channel
+		}
+	}()
+
+	tmpDir := t.TempDir()
+	clientKeyPath := filepath.Join(tmpDir, "client_id_ed25519")
+	keyPem, err := ssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		t.Fatalf("failed to marshal private key: %v", err)
+	}
+	_ = os.WriteFile(clientKeyPath, pem.EncodeToMemory(keyPem), 0600)
+
+	host, portStr, _ := net.SplitHostPort(listener.Addr().String())
+	var port int
+	fmt.Sscanf(portStr, "%d", &port)
+
+	server := &db.Server{
+		Host:       host,
+		Port:       port,
+		User:       "testuser",
+		SSHKeyPath: clientKeyPath,
+	}
+
+	runner := NewSSHRunner("", 5, 5)
+	var output strings.Builder
+	unsafeCmd := "jobcon_ctl.sh run --nexus-pass TopSecretPassword123 ; rm -rf /"
+	exitCode, err := runner.RunCommand(context.Background(), server, unsafeCmd, &output)
+	if err == nil {
+		t.Fatal("expected error for unsafe command, got nil")
+	}
+	if exitCode != -1 {
+		t.Errorf("expected exit code -1, got %d", exitCode)
+	}
+
+	// Verify that secret is NOT leaked into error or output
+	if strings.Contains(err.Error(), "TopSecretPassword123") {
+		t.Errorf("secret leaked into error: %v", err)
+	}
+	if strings.Contains(output.String(), "TopSecretPassword123") {
+		t.Errorf("secret leaked into output: %s", output.String())
+	}
+}
+

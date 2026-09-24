@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"jobcon/internal/crypto"
+
 	"golang.org/x/crypto/ssh"
 )
 
@@ -920,6 +922,33 @@ func (db *DB) SetSetting(key, value string) error {
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 		key, value, now)
 	return err
+}
+
+// GetEncryptedSetting retrieves a setting value and decrypts it using internal/crypto.
+// If the stored value is not prefixed with "enc:v1:", it is returned as plain text (legacy fallback).
+func (db *DB) GetEncryptedSetting(key, defaultValue string) (string, error) {
+	val, err := db.GetSetting(key, defaultValue)
+	if err != nil {
+		return defaultValue, err
+	}
+	decrypted, err := crypto.Decrypt(val)
+	if err != nil {
+		return val, err
+	}
+	return decrypted, nil
+}
+
+// SetEncryptedSetting encrypts a value using internal/crypto before storing it in the settings table.
+// If value is empty, it stores an empty string.
+func (db *DB) SetEncryptedSetting(key, value string) error {
+	if value == "" {
+		return db.SetSetting(key, "")
+	}
+	encrypted, err := crypto.Encrypt(value)
+	if err != nil {
+		return err
+	}
+	return db.SetSetting(key, encrypted)
 }
 
 func (db *DB) GetAllSettings() (map[string]string, error) {
