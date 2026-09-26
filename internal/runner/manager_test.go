@@ -3,6 +3,7 @@ package runner
 import (
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"jobcon/internal/storage"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ func TestBuildNexusURL(t *testing.T) {
 		name        string
 		dbSetting   string
 		cfgBaseURL  string
-		job         *db.Job
+		job         *domain.Job
 		version     string
 		expectedURL string
 	}{
@@ -29,7 +30,7 @@ func TestBuildNexusURL(t *testing.T) {
 			name:       "standard base URL without /repository",
 			dbSetting:  "http://omv.localdomain:8081",
 			cfgBaseURL: "http://fallback:8081",
-			job: &db.Job{
+			job: &domain.Job{
 				GroupID:    "com.opitzhome.jobs",
 				ArtifactID: "crm_lead_dispatcher",
 				NexusRepo:  "talend-releases",
@@ -41,7 +42,7 @@ func TestBuildNexusURL(t *testing.T) {
 			name:       "base URL with /repository already present",
 			dbSetting:  "http://omv.localdomain:8081/repository",
 			cfgBaseURL: "http://fallback:8081",
-			job: &db.Job{
+			job: &domain.Job{
 				GroupID:    "com.opitzhome.jobs",
 				ArtifactID: "crm_lead_dispatcher",
 				NexusRepo:  "talend-releases",
@@ -53,7 +54,7 @@ func TestBuildNexusURL(t *testing.T) {
 			name:       "base URL with trailing slash and /repository/",
 			dbSetting:  "http://omv.localdomain:8081/repository/",
 			cfgBaseURL: "http://fallback:8081",
-			job: &db.Job{
+			job: &domain.Job{
 				GroupID:    "com.opitzhome.jobs",
 				ArtifactID: "crm_lead_dispatcher",
 				NexusRepo:  "talend-releases",
@@ -65,7 +66,7 @@ func TestBuildNexusURL(t *testing.T) {
 			name:       "fallback to releases when NexusRepo is empty",
 			dbSetting:  "http://nexus.intern:8081",
 			cfgBaseURL: "http://fallback:8081",
-			job: &db.Job{
+			job: &domain.Job{
 				GroupID:    "de.firma.talend",
 				ArtifactID: "sync_sap",
 				NexusRepo:  "",
@@ -99,10 +100,10 @@ func TestStartBulkRunQueue(t *testing.T) {
 	}
 	defer database.Close()
 
-	_ = database.CreateServer(&db.Server{ID: "srv-1", Name: "Server 1", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"})
-	_ = database.CreateJob(&db.Job{ID: "job-1", Name: "Job 1", ServerID: "srv-1", GroupID: "g", ArtifactID: "a1", ActiveVersion: "1.0"})
-	_ = database.CreateJob(&db.Job{ID: "job-2", Name: "Job 2", ServerID: "srv-1", GroupID: "g", ArtifactID: "a2", ActiveVersion: "1.0"})
-	_ = database.CreateJob(&db.Job{ID: "job-3", Name: "Job 3", ServerID: "srv-1", GroupID: "g", ArtifactID: "a3", ActiveVersion: "1.0"})
+	_ = database.CreateServer(&domain.Server{ID: "srv-1", Name: "Server 1", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"})
+	_ = database.CreateJob(&domain.Job{ID: "job-1", Name: "Job 1", ServerID: "srv-1", GroupID: "g", ArtifactID: "a1", ActiveVersion: "1.0"})
+	_ = database.CreateJob(&domain.Job{ID: "job-2", Name: "Job 2", ServerID: "srv-1", GroupID: "g", ArtifactID: "a2", ActiveVersion: "1.0"})
+	_ = database.CreateJob(&domain.Job{ID: "job-3", Name: "Job 3", ServerID: "srv-1", GroupID: "g", ArtifactID: "a3", ActiveVersion: "1.0"})
 
 	m := NewExecutionManager(database, nil, nil, &config.NexusConfig{})
 
@@ -149,7 +150,7 @@ func TestExecuteJobCommand_FailedSSHKeyWritesErrorToLog(t *testing.T) {
 		t.Fatalf("failed to create log storage: %v", err)
 	}
 
-	server := &db.Server{
+	server := &domain.Server{
 		ID:         "srv-missing-key",
 		Name:       "Test Missing Key Server",
 		Host:       "127.0.0.1",
@@ -160,7 +161,7 @@ func TestExecuteJobCommand_FailedSSHKeyWritesErrorToLog(t *testing.T) {
 	}
 	_ = database.CreateServer(server)
 
-	job := &db.Job{
+	job := &domain.Job{
 		ID:            "job-deploy-test",
 		Name:          "Inventory Test Job",
 		ServerID:      server.ID,
@@ -173,7 +174,7 @@ func TestExecuteJobCommand_FailedSSHKeyWritesErrorToLog(t *testing.T) {
 	sshRunner := NewSSHRunner("", 5, 5)
 	manager := NewExecutionManager(database, logStore, sshRunner, &config.NexusConfig{})
 
-	execution := &db.Execution{
+	execution := &domain.Execution{
 		ID:          "exec_test123",
 		JobID:       job.ID,
 		JobName:     job.Name,

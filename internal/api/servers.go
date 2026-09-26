@@ -4,24 +4,26 @@ import (
 	"encoding/json"
 	"errors"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
+	"jobcon/internal/services"
 	"net/http"
 )
 
 func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
-	servers, err := a.db.ListServers()
+	servers, err := a.serverSvc.ListServers()
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if servers == nil {
-		servers = []db.Server{}
+		servers = []domain.Server{}
 	}
 	a.jsonResponse(w, http.StatusOK, servers)
 }
 
 func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	server, err := a.db.GetServer(id)
+	server, err := a.serverSvc.GetServer(id)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "server not found")
@@ -34,33 +36,27 @@ func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleCreateServer(w http.ResponseWriter, r *http.Request) {
-	var server db.Server
-	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
+	var cmd services.CreateServerCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if server.ID == "" || server.Name == "" || server.Host == "" {
-		a.jsonError(w, http.StatusBadRequest, "missing required fields (id, name, host)")
-		return
-	}
-
-	if err := a.db.CreateServer(&server); err != nil {
+	if err := a.serverSvc.CreateServer(r.Context(), cmd); err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.jsonResponse(w, http.StatusCreated, server)
+	a.jsonResponse(w, http.StatusCreated, cmd.Server)
 }
 
 func (a *API) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var server db.Server
-	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
+	var cmd services.UpdateServerCommand
+	cmd.ID = r.PathValue("id")
+	if err := json.NewDecoder(r.Body).Decode(&cmd.Server); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	server.ID = id
 
-	if err := a.db.UpdateServer(&server); err != nil {
+	if err := a.serverSvc.UpdateServer(r.Context(), cmd); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "server not found")
 			return
@@ -68,7 +64,7 @@ func (a *API) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.jsonResponse(w, http.StatusOK, server)
+	a.jsonResponse(w, http.StatusOK, cmd.Server)
 }
 
 func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +146,7 @@ func (a *API) handleServerUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if jobs == nil {
-		jobs = []db.Job{}
+		jobs = []domain.Job{}
 	}
 
 	allServers, err := a.db.ListServers()
@@ -158,14 +154,14 @@ func (a *API) handleServerUsage(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var otherServers []db.Server
+	var otherServers []domain.Server
 	for _, s := range allServers {
 		if s.ID != id {
 			otherServers = append(otherServers, s)
 		}
 	}
 	if otherServers == nil {
-		otherServers = []db.Server{}
+		otherServers = []domain.Server{}
 	}
 
 	a.jsonResponse(w, http.StatusOK, map[string]any{

@@ -8,6 +8,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
@@ -43,7 +44,7 @@ func setupTestAPI(t *testing.T) (*API, *http.ServeMux, *db.DB, string) {
 	rawToken := "secret-test-token"
 	h := sha256.Sum256([]byte("jobcon_" + rawToken))
 	tokenHash := hex.EncodeToString(h[:])
-	_ = database.CreateAPIToken(&db.APIToken{
+	_ = database.CreateAPIToken(&domain.APIToken{
 		ID:        "token-01",
 		Name:      "test-token",
 		TokenHash: tokenHash,
@@ -73,7 +74,7 @@ func TestAPIHealthAndJobs(t *testing.T) {
 	}
 
 	// Create a prerequisite server
-	_ = database.CreateServer(&db.Server{
+	_ = database.CreateServer(&domain.Server{
 		ID:         "srv-01",
 		Name:       "Production 01",
 		Host:       "192.168.1.50",
@@ -127,7 +128,7 @@ func TestAPIHealthAndJobs(t *testing.T) {
 		t.Fatalf("expected 200 OK for GET /jobs, got %d", rec.Code)
 	}
 
-	var jobs []db.Job
+	var jobs []domain.Job
 	if err := json.Unmarshal(rec.Body.Bytes(), &jobs); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestAPIServerUsageAndDelete(t *testing.T) {
 	defer database.Close()
 
 	// 1. Create two servers
-	s1 := &db.Server{
+	s1 := &domain.Server{
 		ID:         "srv-api-1",
 		Name:       "Node 1",
 		Host:       "192.168.1.10",
@@ -167,7 +168,7 @@ func TestAPIServerUsageAndDelete(t *testing.T) {
 		JobsDir:    "/opt/talend/jobs",
 		ScriptsDir: "/opt/talend/scripts",
 	}
-	s2 := &db.Server{
+	s2 := &domain.Server{
 		ID:         "srv-api-2",
 		Name:       "Node 2",
 		Host:       "192.168.1.20",
@@ -179,7 +180,7 @@ func TestAPIServerUsageAndDelete(t *testing.T) {
 	_ = database.CreateServer(s2)
 
 	// Create job on s1
-	j := &db.Job{
+	j := &domain.Job{
 		ID:            "job-api-1",
 		Name:          "Job API 1",
 		ServerID:      "srv-api-1",
@@ -200,9 +201,9 @@ func TestAPIServerUsageAndDelete(t *testing.T) {
 		t.Fatalf("expected 200 OK for server usage, got %d", rec.Code)
 	}
 	var usageRes struct {
-		JobCount     int         `json:"job_count"`
-		Jobs         []db.Job    `json:"jobs"`
-		OtherServers []db.Server `json:"other_servers"`
+		JobCount     int             `json:"job_count"`
+		Jobs         []domain.Job    `json:"jobs"`
+		OtherServers []domain.Server `json:"other_servers"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &usageRes); err != nil {
 		t.Fatalf("failed to decode usage response: %v", err)
@@ -245,7 +246,7 @@ func TestAPIResetServerHostKey(t *testing.T) {
 	_, mux, database, token := setupTestAPI(t)
 	defer database.Close()
 
-	_ = database.CreateServer(&db.Server{
+	_ = database.CreateServer(&domain.Server{
 		ID:         "srv-reset-1",
 		Name:       "Reset Host Key Node",
 		Host:       "192.168.1.100",
@@ -295,7 +296,7 @@ func TestAPIDeployConflictAndForce(t *testing.T) {
 	_, mux, database, token := setupTestAPI(t)
 	defer database.Close()
 
-	_ = database.CreateServer(&db.Server{
+	_ = database.CreateServer(&domain.Server{
 		ID:         "srv-dep-1",
 		Name:       "Deploy Node",
 		Host:       "192.168.1.100",
@@ -304,7 +305,7 @@ func TestAPIDeployConflictAndForce(t *testing.T) {
 		SSHKeyPath: "/tmp/key",
 	})
 
-	j := &db.Job{
+	j := &domain.Job{
 		ID:              "job-dep-1",
 		Name:            "Deploy Job",
 		ServerID:        "srv-dep-1",
@@ -362,7 +363,7 @@ func TestAPIDeployConflictAndForce(t *testing.T) {
 	}
 
 	// 5. Another job on the same server with same artifact
-	j2 := &db.Job{
+	j2 := &domain.Job{
 		ID:              "job-dep-2",
 		Name:            "Deploy Job 2",
 		ServerID:        "srv-dep-1",
@@ -401,7 +402,7 @@ func TestAPIUsersManagement(t *testing.T) {
 	defer database.Close()
 
 	// Create initial local admin
-	admin := &db.User{
+	admin := &domain.User{
 		ID:           "admin_api_1",
 		Username:     "admin_api",
 		Role:         "admin",
@@ -424,7 +425,7 @@ func TestAPIUsersManagement(t *testing.T) {
 		t.Fatalf("expected 201 Created for LDAP user, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var createdLDAP db.User
+	var createdLDAP domain.User
 	_ = json.NewDecoder(rec.Body).Decode(&createdLDAP)
 	if createdLDAP.AuthSource != "ldap" || createdLDAP.Role != "operator" {
 		t.Errorf("unexpected created user: %+v", createdLDAP)
@@ -467,9 +468,9 @@ func TestAPIValidationRejectsMaliciousInputs(t *testing.T) {
 	_, mux, database, token := setupTestAPI(t)
 	defer database.Close()
 
-	server := &db.Server{ID: "srv_val", Name: "Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
+	server := &domain.Server{ID: "srv_val", Name: "Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
 	_ = database.CreateServer(server)
-	job := &db.Job{ID: "job_val", Name: "Test Job", ServerID: server.ID, GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0.0"}
+	job := &domain.Job{ID: "job_val", Name: "Test Job", ServerID: server.ID, GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0.0"}
 	_ = database.CreateJob(job)
 
 	// Deploy with malicious version
@@ -559,9 +560,9 @@ func TestAPIBulkRunConcurrencyLimits(t *testing.T) {
 	_, mux, database, token := setupTestAPI(t)
 	defer database.Close()
 
-	server := &db.Server{ID: "srv_bulk", Name: "Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
+	server := &domain.Server{ID: "srv_bulk", Name: "Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
 	_ = database.CreateServer(server)
-	job := &db.Job{ID: "job_bulk", Name: "Test Job", ServerID: server.ID, GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0.0"}
+	job := &domain.Job{ID: "job_bulk", Name: "Test Job", ServerID: server.ID, GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0.0"}
 	_ = database.CreateJob(job)
 
 	// Concurrency > 100 should return 400 Bad Request
@@ -576,5 +577,3 @@ func TestAPIBulkRunConcurrencyLimits(t *testing.T) {
 		t.Errorf("expected 400 Bad Request for concurrency > 100, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
-
-

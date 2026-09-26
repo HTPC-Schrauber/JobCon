@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	ErrLDAPDisabled    = errors.New("LDAP / Active Directory Authentifizierung ist deaktiviert")
+	ErrLDAPDisabled     = errors.New("LDAP / Active Directory Authentifizierung ist deaktiviert")
 	ErrLDAPUserNotFound = errors.New("Benutzer in LDAP / Active Directory nicht gefunden")
-	ErrEmptyPassword   = errors.New("Passwort darf nicht leer sein")
+	ErrEmptyPassword    = errors.New("Passwort darf nicht leer sein")
 )
 
 type LDAPUserInfo struct {

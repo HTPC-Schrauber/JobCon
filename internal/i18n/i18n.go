@@ -260,4 +260,3 @@ func (l *Localizer) T(key string, args ...any) string {
 	}
 	return l.m.T(l.lang, key, args...)
 }
-

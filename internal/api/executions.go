@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"jobcon/internal/runner"
 	"net/http"
 	"strconv"
@@ -19,7 +20,7 @@ func (a *API) handleListExecutions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := r.URL.Query().Get("job_id")
-	var execs []db.Execution
+	var execs []domain.Execution
 	var err error
 
 	if jobID != "" {
@@ -33,7 +34,7 @@ func (a *API) handleListExecutions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if execs == nil {
-		execs = []db.Execution{}
+		execs = []domain.Execution{}
 	}
 	a.jsonResponse(w, http.StatusOK, execs)
 }

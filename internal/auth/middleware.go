@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,7 +22,7 @@ const (
 )
 
 type Session struct {
-	User      *db.User
+	User      *domain.User
 	ExpiresAt time.Time
 }
 
@@ -58,7 +59,7 @@ func NewSessionManager(ttl time.Duration) *SessionManager {
 	return sm
 }
 
-func (sm *SessionManager) CreateSession(user *db.User) string {
+func (sm *SessionManager) CreateSession(user *domain.User) string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -70,7 +71,7 @@ func (sm *SessionManager) CreateSession(user *db.User) string {
 	return token
 }
 
-func (sm *SessionManager) GetSession(token string) (*db.User, bool) {
+func (sm *SessionManager) GetSession(token string) (*domain.User, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
@@ -88,8 +89,8 @@ func (sm *SessionManager) DestroySession(token string) {
 }
 
 // UserFromContext retrieves the authenticated user from the request context
-func UserFromContext(ctx context.Context) *db.User {
-	if u, ok := ctx.Value(UserKey).(*db.User); ok {
+func UserFromContext(ctx context.Context) *domain.User {
+	if u, ok := ctx.Value(UserKey).(*domain.User); ok {
 		return u
 	}
 	return nil
@@ -110,7 +111,7 @@ func NewMiddleware(auth Authenticator, database *db.DB, sessions *SessionManager
 }
 
 // AuthenticateRequest inspects the request for Bearer token, BasicAuth, or Session cookie
-func (m *Middleware) AuthenticateRequest(r *http.Request) (*db.User, error) {
+func (m *Middleware) AuthenticateRequest(r *http.Request) (*domain.User, error) {
 	// 1. API Bearer Token
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
@@ -121,7 +122,7 @@ func (m *Middleware) AuthenticateRequest(r *http.Request) (*db.User, error) {
 		apiToken, err := m.db.GetAPITokenByHash(tokenHash)
 		if err == nil {
 			_ = m.db.UpdateAPITokenLastUsed(apiToken.ID)
-			return &db.User{
+			return &domain.User{
 				ID:          "token:" + apiToken.ID,
 				Username:    "token:" + apiToken.Name,
 				DisplayName: "API Token: " + apiToken.Name,

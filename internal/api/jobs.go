@@ -6,29 +6,12 @@ import (
 	"fmt"
 	"jobcon/internal/auth"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"jobcon/internal/runner"
+	"jobcon/internal/services"
 	"net/http"
-	"regexp"
-	"time"
+	"strings"
 )
-
-var safeIdentifierRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-type CreateJobRequest struct {
-	db.Job
-	Force bool `json:"force"`
-}
-
-type DeployRequest struct {
-	Version string `json:"version"`
-	Force   bool   `json:"force"`
-}
-
-type RunRequest struct {
-	Version string            `json:"version"`
-	Context string            `json:"context"`
-	Params  map[string]string `json:"params"`
-}
 
 func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -41,7 +24,7 @@ func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 			fmt.Sscanf(ps, "%d", &pageSize)
 		}
 
-		filter := db.JobFilter{
+		filter := domain.JobFilter{
 			Search:     q.Get("search"),
 			GroupID:    q.Get("group_id"),
 			ArtifactID: q.Get("artifact_id"),
@@ -68,7 +51,7 @@ func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if jobs == nil {
-		jobs = []db.Job{}
+		jobs = []domain.Job{}
 	}
 	a.jsonResponse(w, http.StatusOK, jobs)
 }
@@ -88,40 +71,26 @@ func (a *API) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
-	var req CreateJobRequest
+	var req services.CreateJobCommand
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	job := req.Job
-	if job.ID == "" || job.Name == "" || job.ServerID == "" || job.GroupID == "" || job.ArtifactID == "" || job.ActiveVersion == "" || job.NexusRepo == "" {
-		a.jsonError(w, http.StatusBadRequest, "missing required fields (id, name, server_id, group_id, artifact_id, active_version, nexus_repo)")
+	req.Force = r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
+	if err := a.jobSvc.CreateJob(r.Context(), req); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			a.jsonError(w, http.StatusConflict, err.Error())
+		} else {
+			a.jsonError(w, http.StatusBadRequest, err.Error())
+		}
 		return
 	}
-
-	isForce := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
-	if !isForce {
-		existing, err := a.db.GetJobsByArtifact(job.ArtifactID)
-		if err != nil {
-			a.jsonError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if len(existing) > 0 {
-			a.jsonError(w, http.StatusConflict, fmt.Sprintf("a job with artifact '%s' already exists (job ID: '%s', name: '%s'). Use force=true to proceed", job.ArtifactID, existing[0].ID, existing[0].Name))
-			return
-		}
-	}
-
-	if err := a.db.CreateJob(&job); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	a.jsonResponse(w, http.StatusCreated, job)
+	a.jsonResponse(w, http.StatusCreated, req.Job)
 }
 
 func (a *API) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var job db.Job
+	var job domain.Job
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -187,102 +156,40 @@ func (a *API) handleGetJobArtifact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleDeployJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if !safeIdentifierRe.MatchString(id) {
-		a.jsonError(w, http.StatusBadRequest, "invalid job id")
-		return
-	}
-	var req DeployRequest
+	var req services.DeployJobCommand
 	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	if req.Version != "" && !safeIdentifierRe.MatchString(req.Version) {
-		a.jsonError(w, http.StatusBadRequest, "invalid version format")
-		return
-	}
-
-	job, err := a.db.GetJob(id)
-	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			a.jsonError(w, http.StatusNotFound, "job not found")
-			return
-		}
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	targetVersion := req.Version
-	if targetVersion == "" {
-		targetVersion = job.ActiveVersion
-	}
-
-	isForce := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
-	if !isForce {
-		if job.IsDeployed && job.DeployedVersion != "" && job.DeployedVersion != targetVersion {
-			a.jsonError(w, http.StatusConflict, fmt.Sprintf("another version '%s' of artifact '%s' is already deployed on server. Use force=true to proceed", job.DeployedVersion, job.ArtifactID))
-			return
-		}
-
-		serverJobs, err := a.db.GetJobsByArtifactOnServer(job.ArtifactID, job.ServerID)
-		if err == nil {
-			for _, sj := range serverJobs {
-				if sj.ID != job.ID && sj.IsDeployed && sj.DeployedVersion != "" && sj.DeployedVersion != targetVersion {
-					a.jsonError(w, http.StatusConflict, fmt.Sprintf("artifact '%s' is already deployed on this server by job '%s' with version '%s'. Use force=true to proceed", job.ArtifactID, sj.Name, sj.DeployedVersion))
-					return
-				}
-			}
-		}
-	}
+	req.JobID = r.PathValue("id")
 
 	user := auth.UserFromContext(r.Context())
-	triggeredBy := "unknown"
 	if user != nil {
-		triggeredBy = user.Username
+		req.TriggeredBy = user.Username
 	}
 
-	exec, err := a.runner.StartExecution(r.Context(), id, "deploy", targetVersion, "", nil, triggeredBy)
+	req.Force = r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
+
+	exec, err := a.jobSvc.DeployJob(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, runner.ErrJobAlreadyRunning) {
+		if strings.Contains(err.Error(), "already deployed") {
 			a.jsonError(w, http.StatusConflict, err.Error())
-			return
+		} else {
+			a.jsonError(w, http.StatusBadRequest, err.Error())
 		}
-		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	a.jsonResponse(w, http.StatusAccepted, exec)
 }
 
 func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if !safeIdentifierRe.MatchString(id) {
-		a.jsonError(w, http.StatusBadRequest, "invalid job id")
-		return
-	}
-	var req RunRequest
+	var req services.RunJobCommand
 	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	if req.Version != "" && !safeIdentifierRe.MatchString(req.Version) {
-		a.jsonError(w, http.StatusBadRequest, "invalid version format")
-		return
-	}
-	if req.Context != "" && !safeIdentifierRe.MatchString(req.Context) {
-		a.jsonError(w, http.StatusBadRequest, "invalid context format")
-		return
-	}
-	for k := range req.Params {
-		if !safeIdentifierRe.MatchString(k) {
-			a.jsonError(w, http.StatusBadRequest, "invalid param key: "+k)
-			return
-		}
-	}
+	req.JobID = r.PathValue("id")
 
 	user := auth.UserFromContext(r.Context())
-	triggeredBy := "unknown"
 	if user != nil {
-		triggeredBy = user.Username
+		req.TriggeredBy = user.Username
 	}
 
-	exec, err := a.runner.StartExecution(r.Context(), id, "run", req.Version, req.Context, req.Params, triggeredBy)
+	exec, err := a.jobSvc.RunJob(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, runner.ErrJobAlreadyRunning) {
 			a.jsonError(w, http.StatusConflict, err.Error())
@@ -291,94 +198,44 @@ func (a *API) handleRunJob(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	// Synchronous blocking mode for Jenkins CI/CD
-	if r.URL.Query().Get("wait") == "true" {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		timeout := time.After(2 * time.Hour) // Max run wait
-		for {
-			select {
-			case <-timeout:
-				a.jsonError(w, http.StatusGatewayTimeout, "execution timed out waiting for completion")
-				return
-			case <-r.Context().Done():
-				return
-			case <-ticker.C:
-				currentExec, err := a.db.GetExecution(exec.ID)
-				if err == nil && currentExec.Status != "running" && currentExec.Status != "pending" {
-					status := http.StatusOK
-					if currentExec.Status == "failed" {
-						status = http.StatusInternalServerError
-					}
-					a.jsonResponse(w, status, currentExec)
-					return
-				}
-			}
-		}
-	}
-
 	a.jsonResponse(w, http.StatusAccepted, exec)
 }
 
 func (a *API) handleUndeployJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if !safeIdentifierRe.MatchString(id) {
-		a.jsonError(w, http.StatusBadRequest, "invalid job id")
-		return
-	}
+	var req services.UndeployJobCommand
+	req.JobID = r.PathValue("id")
 	user := auth.UserFromContext(r.Context())
-	triggeredBy := "unknown"
 	if user != nil {
-		triggeredBy = user.Username
+		req.TriggeredBy = user.Username
 	}
-
-	exec, err := a.runner.StartExecution(r.Context(), id, "undeploy", "", "", nil, triggeredBy)
+	exec, err := a.jobSvc.UndeployJob(r.Context(), req)
 	if err != nil {
-		if errors.Is(err, runner.ErrJobAlreadyRunning) {
-			a.jsonError(w, http.StatusConflict, err.Error())
-			return
-		}
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
 	a.jsonResponse(w, http.StatusAccepted, exec)
 }
 
-type BulkJobsRequest struct {
-	JobIDs      []string `json:"job_ids"`
-	Concurrency int      `json:"concurrency,omitempty"`
-	Force       bool     `json:"force"`
-}
-
 type BulkJobResult struct {
-	JobID   string        `json:"job_id"`
-	Success bool          `json:"success"`
-	Exec    *db.Execution `json:"execution,omitempty"`
-	Error   string        `json:"error,omitempty"`
+	JobID   string            `json:"job_id"`
+	Success bool              `json:"success"`
+	Exec    *domain.Execution `json:"execution,omitempty"`
+	Error   string            `json:"error,omitempty"`
 }
 
 func (a *API) handleBulkRunJobs(w http.ResponseWriter, r *http.Request) {
-	var req BulkJobsRequest
+	var req services.BulkRunCommand
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Concurrency < 0 || req.Concurrency > runner.MaxBulkConcurrency {
-		a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("concurrency must be between 1 and %d", runner.MaxBulkConcurrency))
-		return
-	}
-
 	user := auth.UserFromContext(r.Context())
-	triggeredBy := "unknown"
 	if user != nil {
-		triggeredBy = user.Username
+		req.TriggeredBy = user.Username
 	}
 
-	execs, err := a.runner.StartBulkRunQueue(r.Context(), req.JobIDs, req.Concurrency, triggeredBy)
+	execs, err := a.jobSvc.BulkRun(r.Context(), req)
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -386,92 +243,51 @@ func (a *API) handleBulkRunJobs(w http.ResponseWriter, r *http.Request) {
 
 	var results []BulkJobResult
 	for _, exec := range execs {
-		results = append(results, BulkJobResult{
-			JobID:   exec.JobID,
-			Success: true,
-			Exec:    exec,
-		})
+		results = append(results, BulkJobResult{JobID: exec.JobID, Success: true, Exec: exec})
 	}
-
 	a.jsonResponse(w, http.StatusOK, results)
 }
 
 func (a *API) handleBulkDeployJobs(w http.ResponseWriter, r *http.Request) {
-	var req BulkJobsRequest
+	var req services.BulkDeployCommand
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
 	user := auth.UserFromContext(r.Context())
-	triggeredBy := "unknown"
 	if user != nil {
-		triggeredBy = user.Username
+		req.TriggeredBy = user.Username
 	}
-
-	isForce := r.URL.Query().Get("force") == "true" || r.URL.Query().Get("force") == "1" || req.Force
-
+	execs, err := a.jobSvc.BulkDeploy(r.Context(), req)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	var results []BulkJobResult
-	for _, id := range req.JobIDs {
-		job, err := a.db.GetJob(id)
-		if err != nil {
-			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
-			continue
-		}
-
-		targetVersion := job.ActiveVersion
-		if !isForce {
-			var conflictErr string
-			if job.IsDeployed && job.DeployedVersion != "" && job.DeployedVersion != targetVersion {
-				conflictErr = fmt.Sprintf("another version '%s' of artifact '%s' is already deployed on server. Use force=true to proceed", job.DeployedVersion, job.ArtifactID)
-			} else {
-				serverJobs, _ := a.db.GetJobsByArtifactOnServer(job.ArtifactID, job.ServerID)
-				for _, sj := range serverJobs {
-					if sj.ID != job.ID && sj.IsDeployed && sj.DeployedVersion != "" && sj.DeployedVersion != targetVersion {
-						conflictErr = fmt.Sprintf("artifact '%s' is already deployed on this server by job '%s' with version '%s'. Use force=true to proceed", job.ArtifactID, sj.Name, sj.DeployedVersion)
-						break
-					}
-				}
-			}
-			if conflictErr != "" {
-				results = append(results, BulkJobResult{JobID: id, Success: false, Error: conflictErr})
-				continue
-			}
-		}
-
-		exec, err := a.runner.StartExecution(r.Context(), id, "deploy", targetVersion, "", nil, triggeredBy)
-		if err != nil {
-			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
-		} else {
-			results = append(results, BulkJobResult{JobID: id, Success: true, Exec: exec})
-		}
+	for _, exec := range execs {
+		results = append(results, BulkJobResult{JobID: exec.JobID, Success: true, Exec: exec})
 	}
-
 	a.jsonResponse(w, http.StatusOK, results)
 }
 
 func (a *API) handleBulkUndeployJobs(w http.ResponseWriter, r *http.Request) {
-	var req BulkJobsRequest
+	var req services.BulkUndeployCommand
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
 	user := auth.UserFromContext(r.Context())
-	triggeredBy := "unknown"
 	if user != nil {
-		triggeredBy = user.Username
+		req.TriggeredBy = user.Username
 	}
-
+	execs, err := a.jobSvc.BulkUndeploy(r.Context(), req)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	var results []BulkJobResult
-	for _, id := range req.JobIDs {
-		exec, err := a.runner.StartExecution(r.Context(), id, "undeploy", "", "", nil, triggeredBy)
-		if err != nil {
-			results = append(results, BulkJobResult{JobID: id, Success: false, Error: err.Error()})
-		} else {
-			results = append(results, BulkJobResult{JobID: id, Success: true, Exec: exec})
-		}
+	for _, exec := range execs {
+		results = append(results, BulkJobResult{JobID: exec.JobID, Success: true, Exec: exec})
 	}
-
 	a.jsonResponse(w, http.StatusOK, results)
 }

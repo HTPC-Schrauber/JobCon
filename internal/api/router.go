@@ -7,33 +7,46 @@ import (
 	"jobcon/internal/db"
 	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
+	"jobcon/internal/services"
 	"jobcon/internal/storage"
 	"log"
 	"net/http"
 )
 
 type API struct {
-	db       *db.DB
-	storage  *storage.LogStorage
-	runner   *runner.ExecutionManager
-	ssh      *runner.SSHRunner
-	authMW   *auth.Middleware
-	cfg      *config.Config
-	syncer   *nexus.Syncer
+	jobSvc    *services.JobService
+	userSvc   *services.UserService
+	serverSvc *services.ServerService
+	execSvc   *services.ExecutionService
+	db        *db.DB
+	storage   *storage.LogStorage
+	runner    *runner.ExecutionManager
+	ssh       *runner.SSHRunner
+	authMW    *auth.Middleware
+	cfg       *config.Config
+	syncer    *nexus.Syncer
 }
 
-func NewAPI(database *db.DB, storage *storage.LogStorage, runner *runner.ExecutionManager, ssh *runner.SSHRunner, authMW *auth.Middleware, cfg *config.Config, syncer *nexus.Syncer) *API {
+func NewAPI(database *db.DB, storage *storage.LogStorage, runnerMgr *runner.ExecutionManager, ssh *runner.SSHRunner, authMW *auth.Middleware, cfg *config.Config, syncer *nexus.Syncer) *API {
+	jobSvc := services.NewJobService(database, runnerMgr)
+	userSvc := services.NewUserService(database)
+	serverSvc := services.NewServerService(database)
+	execSvc := services.NewExecutionService(database, runnerMgr)
 	if ssh != nil && database != nil {
 		ssh.SetDB(database)
 	}
 	return &API{
-		db:      database,
-		storage: storage,
-		runner:  runner,
-		ssh:     ssh,
-		authMW:  authMW,
-		cfg:     cfg,
-		syncer:  syncer,
+		db:        database,
+		storage:   storage,
+		runner:    runnerMgr,
+		jobSvc:    jobSvc,
+		userSvc:   userSvc,
+		serverSvc: serverSvc,
+		execSvc:   execSvc,
+		ssh:       ssh,
+		authMW:    authMW,
+		cfg:       cfg,
+		syncer:    syncer,
 	}
 }
 

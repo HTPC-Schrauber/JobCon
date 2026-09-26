@@ -4,6 +4,7 @@ import (
 	"context"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -111,9 +112,9 @@ func TestStartExecution_RejectsInjection(t *testing.T) {
 	}
 	defer database.Close()
 
-	server := &db.Server{ID: "srv-sec", Name: "Sec Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
+	server := &domain.Server{ID: "srv-sec", Name: "Sec Server", Host: "127.0.0.1", SSHKeyPath: "/k", Status: "online"}
 	_ = database.CreateServer(server)
-	job := &db.Job{ID: "job-sec", Name: "Sec Job", ServerID: "srv-sec", GroupID: "g", ArtifactID: "sec_job", ActiveVersion: "1.0.0"}
+	job := &domain.Job{ID: "job-sec", Name: "Sec Job", ServerID: "srv-sec", GroupID: "g", ArtifactID: "sec_job", ActiveVersion: "1.0.0"}
 	_ = database.CreateJob(job)
 
 	m := NewExecutionManager(database, nil, nil, &config.NexusConfig{})

@@ -362,5 +362,3 @@ func TestNexusTestConnection_Security(t *testing.T) {
 		t.Errorf("expected blocked host message, got: %s", msg2)
 	}
 }
-
-

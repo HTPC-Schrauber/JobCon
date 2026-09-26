@@ -1438,5 +1438,37 @@ function checkNewJobArtifact() {
     }, 250);
 }
 
+// Dashboard Polling for Job Status Updates
+function pollDashboard() {
+    setInterval(() => {
+        // Fetch the current page URL (which includes all active filters/pagination)
+        fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.text())
+            .then(html => {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                
+                // Update running count telemetry
+                const newTelemetry = doc.getElementById('telemetryRunningCount');
+                const oldTelemetry = document.getElementById('telemetryRunningCount');
+                if (newTelemetry && oldTelemetry) {
+                    oldTelemetry.innerText = newTelemetry.innerText;
+                }
+                
+                // Update table body
+                const oldTbody = document.querySelector('.table-scroll-container tbody');
+                const newTbody = doc.querySelector('.table-scroll-container tbody');
+                if (oldTbody && newTbody) {
+                    oldTbody.innerHTML = newTbody.innerHTML;
+                    // Restore selection classes
+                    updateSelectionUI();
+                }
+            })
+            .catch(e => console.error('Dashboard poll error:', e));
+    }, 5000);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    pollDashboard();
+});
 </script>
 {{end}}

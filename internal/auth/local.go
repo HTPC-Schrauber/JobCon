@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"math/big"
 
 	"github.com/google/uuid"
@@ -25,7 +26,7 @@ func NewLocalAuthenticator(database *db.DB) *LocalAuthenticator {
 	return &LocalAuthenticator{db: database}
 }
 
-func (a *LocalAuthenticator) Authenticate(ctx context.Context, username, password string) (*db.User, error) {
+func (a *LocalAuthenticator) Authenticate(ctx context.Context, username, password string) (*domain.User, error) {
 	u, err := a.db.GetUserByUsername(username)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
@@ -117,7 +118,7 @@ func EnsureAdminUser(database *db.DB, explicitPassword string) (string, error) {
 		return "", fmt.Errorf("failed to hash admin password: %w", err)
 	}
 
-	adminUser := &db.User{
+	adminUser := &domain.User{
 		ID:           uuid.New().String(),
 		Username:     "admin",
 		PasswordHash: hash,

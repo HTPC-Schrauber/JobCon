@@ -4,6 +4,7 @@ import (
 	"jobcon/internal/auth"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"jobcon/internal/nexus"
 	"jobcon/internal/runner"
 	"jobcon/internal/storage"
@@ -76,7 +77,7 @@ func TestWebHandlerDashboardAndAuth(t *testing.T) {
 	}
 
 	// 4. Authenticated request to /
-	user := &db.User{ID: "u1", Username: "admin", Role: "admin", DisplayName: "Admin"}
+	user := &domain.User{ID: "u1", Username: "admin", Role: "admin", DisplayName: "Admin"}
 	sessionToken := sessions.CreateSession(user)
 	req = httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: "jobcon_session", Value: sessionToken})
@@ -92,9 +93,9 @@ func TestWebHandlerDashboardAndAuth(t *testing.T) {
 	}
 
 	// 5. Executions page GET /executions
-	_ = database.CreateServer(&db.Server{ID: "srv1", Name: "Server 1", Host: "127.0.0.1", User: "root", Port: 22})
-	_ = database.CreateJob(&db.Job{ID: "j1", Name: "TestJob", ServerID: "srv1", NexusRepo: "releases", GroupID: "g", ArtifactID: "a"})
-	if err := database.CreateExecution(&db.Execution{
+	_ = database.CreateServer(&domain.Server{ID: "srv1", Name: "Server 1", Host: "127.0.0.1", User: "root", Port: 22})
+	_ = database.CreateJob(&domain.Job{ID: "j1", Name: "TestJob", ServerID: "srv1", NexusRepo: "releases", GroupID: "g", ArtifactID: "a"})
+	if err := database.CreateExecution(&domain.Execution{
 		ID:          "exec-123",
 		JobID:       "j1",
 		JobName:     "TestJob",
@@ -193,11 +194,11 @@ func TestWebJobCRUDAndSettings(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "admin_u", Username: "admin", Role: "admin", DisplayName: "Admin"}
+	user := &domain.User{ID: "admin_u", Username: "admin", Role: "admin", DisplayName: "Admin"}
 	token := sessions.CreateSession(user)
 
 	// Create test server
-	_ = database.CreateServer(&db.Server{ID: "srv1", Name: "Server 1", Host: "10.0.0.1", User: "talend"})
+	_ = database.CreateServer(&domain.Server{ID: "srv1", Name: "Server 1", Host: "10.0.0.1", User: "talend"})
 
 	// 1. Create Job via POST /web/jobs/create
 	form := url.Values{
@@ -425,12 +426,12 @@ func TestDashboardGroupingAndColumnFilters(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "viewer_u", Username: "viewer", Role: "viewer", DisplayName: "Viewer"}
+	user := &domain.User{ID: "viewer_u", Username: "viewer", Role: "viewer", DisplayName: "Viewer"}
 	token := sessions.CreateSession(user)
 
-	_ = database.CreateServer(&db.Server{ID: "srv1", Name: "Server 1", Host: "10.0.0.1", User: "talend"})
-	_ = database.CreateJob(&db.Job{ID: "j1", Name: "Job Alpha", ServerID: "srv1", GroupID: "group.sales", ArtifactID: "sales_alpha", ActiveVersion: "1.0", NexusRepo: "releases"})
-	_ = database.CreateJob(&db.Job{ID: "j2", Name: "Job Beta", ServerID: "srv1", GroupID: "group.billing", ArtifactID: "billing_beta", ActiveVersion: "1.0", NexusRepo: "releases"})
+	_ = database.CreateServer(&domain.Server{ID: "srv1", Name: "Server 1", Host: "10.0.0.1", User: "talend"})
+	_ = database.CreateJob(&domain.Job{ID: "j1", Name: "Job Alpha", ServerID: "srv1", GroupID: "group.sales", ArtifactID: "sales_alpha", ActiveVersion: "1.0", NexusRepo: "releases"})
+	_ = database.CreateJob(&domain.Job{ID: "j2", Name: "Job Beta", ServerID: "srv1", GroupID: "group.billing", ArtifactID: "billing_beta", ActiveVersion: "1.0", NexusRepo: "releases"})
 
 	// 1. GET /?group_by=group_id
 	req := httptest.NewRequest("GET", "/?group_by=group_id", nil)
@@ -533,7 +534,7 @@ func TestWebServerSidepanelAndCRUD(t *testing.T) {
 	webHandler.RegisterRoutes(mux)
 
 	// Admin user
-	adminUser := &db.User{
+	adminUser := &domain.User{
 		ID:          "admin-1",
 		Username:    "admin",
 		DisplayName: "Administrator",
@@ -594,7 +595,7 @@ func TestWebServerSidepanelAndCRUD(t *testing.T) {
 	}
 
 	// Create Server 2
-	srv2 := &db.Server{
+	srv2 := &domain.Server{
 		ID:         "srv-web-2",
 		Name:       "Production Node 2",
 		Host:       "10.0.1.2",
@@ -631,7 +632,7 @@ func TestWebServerSidepanelAndCRUD(t *testing.T) {
 	}
 
 	// 4. Create Job on Server 1
-	job := &db.Job{
+	job := &domain.Job{
 		ID:            "job-web-1",
 		Name:          "Web Test Job",
 		ServerID:      "srv-web-1",
@@ -712,7 +713,7 @@ func TestWebLanguageSwitcher(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "u_lang", Username: "languser", Role: "admin", DisplayName: "Lang User"}
+	user := &domain.User{ID: "u_lang", Username: "languser", Role: "admin", DisplayName: "Lang User"}
 	_ = database.CreateUser(user)
 	token := sessions.CreateSession(user)
 
@@ -794,14 +795,14 @@ func TestWebBulkJobActions(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "admin_bulk", Username: "admin", Role: "admin"}
+	user := &domain.User{ID: "admin_bulk", Username: "admin", Role: "admin"}
 	token := sessions.CreateSession(user)
 
-	srv := &db.Server{ID: "srv_bulk", Name: "Server Bulk", Host: "127.0.0.1", User: "talend"}
+	srv := &domain.Server{ID: "srv_bulk", Name: "Server Bulk", Host: "127.0.0.1", User: "talend"}
 	_ = database.CreateServer(srv)
 
-	j1 := &db.Job{ID: "job_b1", Name: "Job B1", ServerID: "srv_bulk", GroupID: "g", ArtifactID: "a1", ActiveVersion: "1.0", NexusRepo: "releases"}
-	j2 := &db.Job{ID: "job_b2", Name: "Job B2", ServerID: "srv_bulk", GroupID: "g", ArtifactID: "a2", ActiveVersion: "1.0", NexusRepo: "releases"}
+	j1 := &domain.Job{ID: "job_b1", Name: "Job B1", ServerID: "srv_bulk", GroupID: "g", ArtifactID: "a1", ActiveVersion: "1.0", NexusRepo: "releases"}
+	j2 := &domain.Job{ID: "job_b2", Name: "Job B2", ServerID: "srv_bulk", GroupID: "g", ArtifactID: "a2", ActiveVersion: "1.0", NexusRepo: "releases"}
 	_ = database.CreateJob(j1)
 	_ = database.CreateJob(j2)
 
@@ -886,13 +887,13 @@ func TestWebJobDeleteWithUndeployServer(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "admin_del", Username: "admin", Role: "admin"}
+	user := &domain.User{ID: "admin_del", Username: "admin", Role: "admin"}
 	token := sessions.CreateSession(user)
 
-	srv := &db.Server{ID: "srv_del", Name: "Server Del", Host: "127.0.0.1", User: "talend"}
+	srv := &domain.Server{ID: "srv_del", Name: "Server Del", Host: "127.0.0.1", User: "talend"}
 	_ = database.CreateServer(srv)
 
-	j := &db.Job{
+	j := &domain.Job{
 		ID:              "job_del_1",
 		Name:            "Job To Delete",
 		ServerID:        "srv_del",
@@ -945,7 +946,7 @@ func TestWebJobAndServerEnvFile(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "admin_env", Username: "admin", Role: "admin"}
+	user := &domain.User{ID: "admin_env", Username: "admin", Role: "admin"}
 	token := sessions.CreateSession(user)
 
 	// 1. Create Server with env_file
@@ -1052,17 +1053,17 @@ func TestHighDensityUIAndNexusSyncAndConcurrencySettings(t *testing.T) {
 	mux := http.NewServeMux()
 	webHandler.RegisterRoutes(mux)
 
-	user := &db.User{ID: "admin_u", Username: "admin", Role: "admin", DisplayName: "Maik Opitz"}
+	user := &domain.User{ID: "admin_u", Username: "admin", Role: "admin", DisplayName: "Maik Opitz"}
 	sessionToken := sessions.CreateSession(user)
 
 	// 1. Add server and running job
-	server := &db.Server{ID: "srv_hd_1", Name: "TESTSERVER-01", Host: "127.0.0.1", Port: 22, User: "talend", Status: "online"}
+	server := &domain.Server{ID: "srv_hd_1", Name: "TESTSERVER-01", Host: "127.0.0.1", Port: 22, User: "talend", Status: "online"}
 	_ = database.CreateServer(server)
 
-	job := &db.Job{ID: "job_running_1", Name: "Echo Test", ServerID: "srv_hd_1", GroupID: "com.opitzhome.test", ArtifactID: "echo_test", ActiveVersion: "1.0.0", NexusRepo: "releases"}
+	job := &domain.Job{ID: "job_running_1", Name: "Echo Test", ServerID: "srv_hd_1", GroupID: "com.opitzhome.test", ArtifactID: "echo_test", ActiveVersion: "1.0.0", NexusRepo: "releases"}
 	_ = database.CreateJob(job)
 
-	exec := &db.Execution{ID: "exec_run_1", JobID: "job_running_1", Status: "running", TriggeredBy: "web:admin", LogPath: "/tmp/fake.log"}
+	exec := &domain.Execution{ID: "exec_run_1", JobID: "job_running_1", Status: "running", TriggeredBy: "web:admin", LogPath: "/tmp/fake.log"}
 	_ = database.CreateExecution(exec)
 
 	// 2. GET / (Dashboard)
@@ -1199,7 +1200,7 @@ func TestWebLDAPSettingsAndUserManagement(t *testing.T) {
 	webHandler.RegisterRoutes(mux)
 
 	// Create initial local admin
-	adminUser := &db.User{
+	adminUser := &domain.User{
 		ID:           "admin_1",
 		Username:     "admin",
 		Role:         "admin",
@@ -1230,17 +1231,17 @@ func TestWebLDAPSettingsAndUserManagement(t *testing.T) {
 
 	// 2. POST /web/settings/ldap (Save settings)
 	ldapForm := url.Values{
-		"ldap_enabled":               {"true"},
-		"ldap_protocol":              {"ldaps"},
-		"ldap_host":                  {"ad.example.local"},
-		"ldap_port":                  {"636"},
-		"ldap_insecure_skip_verify":  {"true"},
-		"ldap_user_bind_template":    {"%s@example.local"},
-		"ldap_base_dn":               {"OU=Users,DC=example,DC=local"},
-		"ldap_attr_username":         {"sAMAccountName"},
-		"ldap_attr_first_name":       {"givenName"},
-		"ldap_attr_last_name":        {"sn"},
-		"ldap_attr_email":            {"mail"},
+		"ldap_enabled":              {"true"},
+		"ldap_protocol":             {"ldaps"},
+		"ldap_host":                 {"ad.example.local"},
+		"ldap_port":                 {"636"},
+		"ldap_insecure_skip_verify": {"true"},
+		"ldap_user_bind_template":   {"%s@example.local"},
+		"ldap_base_dn":              {"OU=Users,DC=example,DC=local"},
+		"ldap_attr_username":        {"sAMAccountName"},
+		"ldap_attr_first_name":      {"givenName"},
+		"ldap_attr_last_name":       {"sn"},
+		"ldap_attr_email":           {"mail"},
 	}
 	req = httptest.NewRequest("POST", "/web/settings/ldap", strings.NewReader(ldapForm.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

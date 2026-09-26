@@ -2,7 +2,7 @@ package auth
 
 import (
 	"context"
-	"jobcon/internal/db"
+	"jobcon/internal/domain"
 )
 
 const (
@@ -13,7 +13,7 @@ const (
 
 // Authenticator is the pluggable interface for authentication (Local, LDAP/AD, etc.)
 type Authenticator interface {
-	Authenticate(ctx context.Context, username, password string) (*db.User, error)
+	Authenticate(ctx context.Context, username, password string) (*domain.User, error)
 }
 
 // RoleLevels defines the hierarchy of roles (higher number = more privileges)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 )
 
 // MultiAuthenticator coordinates authentication across both local bcrypt accounts and LDAP/Active Directory
@@ -33,7 +34,7 @@ func (a *MultiAuthenticator) LocalAuth() *LocalAuthenticator {
 }
 
 // Authenticate verifies credentials against the appropriate backend based on the user's auth_source
-func (a *MultiAuthenticator) Authenticate(ctx context.Context, username, password string) (*db.User, error) {
+func (a *MultiAuthenticator) Authenticate(ctx context.Context, username, password string) (*domain.User, error) {
 	u, err := a.db.GetUserByUsername(username)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {

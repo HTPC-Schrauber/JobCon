@@ -7,6 +7,8 @@ import (
 	"errors"
 	"jobcon/internal/auth"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
+	"jobcon/internal/services"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -31,70 +33,27 @@ type CreateTokenRequest struct {
 }
 
 func (a *API) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := a.db.ListUsers()
+	users, err := a.userSvc.ListUsers()
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if users == nil {
-		users = []db.User{}
+		users = []domain.User{}
 	}
 	a.jsonResponse(w, http.StatusOK, users)
 }
 
 func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	var req CreateUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var cmd services.CreateUserCommand
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	authSource := req.AuthSource
-	if authSource == "" {
-		authSource = "local"
-	}
-
-	if req.Username == "" {
-		a.jsonError(w, http.StatusBadRequest, "username is required")
-		return
-	}
-
-	var hash string
-	if authSource == "local" {
-		if req.Password == "" {
-			a.jsonError(w, http.StatusBadRequest, "password is required for local users")
-			return
-		}
-		var err error
-		hash, err = auth.HashPassword(req.Password)
-		if err != nil {
-			a.jsonError(w, http.StatusInternalServerError, "failed to hash password")
-			return
-		}
-	} else {
-		hash = ""
-		if req.DisplayName == "" {
-			req.DisplayName = req.Username
-		}
-	}
-
-	if req.Role == "" {
-		req.Role = auth.RoleViewer
-	}
-
-	user := &db.User{
-		ID:           uuid.New().String(),
-		Username:     req.Username,
-		PasswordHash: hash,
-		DisplayName:  req.DisplayName,
-		Email:        req.Email,
-		Role:         req.Role,
-		AuthSource:   authSource,
-		IsActive:     true,
-	}
-
-	if err := a.db.CreateUser(user); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+	user, err := a.userSvc.CreateUser(r.Context(), cmd)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -102,15 +61,14 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var user db.User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+	var cmd services.UpdateUserCommand
+	cmd.ID = r.PathValue("id")
+	if err := json.NewDecoder(r.Body).Decode(&cmd.CreateUserCommand); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	user.ID = id
 
-	if err := a.db.UpdateUser(&user); err != nil {
+	if err := a.userSvc.UpdateUser(r.Context(), cmd); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "user not found")
 			return
@@ -122,24 +80,24 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.jsonResponse(w, http.StatusOK, user)
+	a.jsonResponse(w, http.StatusOK, map[string]string{"message": "user updated"})
 }
 
 func (a *API) handleUpdateUserPassword(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var req UpdatePasswordRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.NewPassword == "" {
-		a.jsonError(w, http.StatusBadRequest, "new_password is required")
+	var cmd services.UpdatePasswordCommand
+	cmd.UserID = r.PathValue("id")
+
+	// API expects {"new_password": "..."} but DTO expects Password. Let's map it.
+	var req struct {
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	cmd.Password = req.NewPassword
 
-	hash, err := auth.HashPassword(req.NewPassword)
-	if err != nil {
-		a.jsonError(w, http.StatusInternalServerError, "failed to hash password")
-		return
-	}
-
-	if err := a.db.UpdateUserPassword(id, hash); err != nil {
+	if err := a.userSvc.UpdatePassword(r.Context(), cmd); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "user not found")
 			return
@@ -147,13 +105,12 @@ func (a *API) handleUpdateUserPassword(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
 	a.jsonResponse(w, http.StatusOK, map[string]string{"message": "password updated"})
 }
 
 func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := a.db.DeleteUser(id); err != nil {
+	if err := a.userSvc.DeleteUser(r.Context(), id); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			a.jsonError(w, http.StatusNotFound, "user not found")
 			return
@@ -175,7 +132,7 @@ func (a *API) handleListTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tokens == nil {
-		tokens = []db.APIToken{}
+		tokens = []domain.APIToken{}
 	}
 	a.jsonResponse(w, http.StatusOK, tokens)
 }
@@ -196,7 +153,7 @@ func (a *API) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256([]byte(fullToken))
 	tokenHash := hex.EncodeToString(hash[:])
 
-	token := &db.APIToken{
+	token := &domain.APIToken{
 		ID:        uuid.New().String(),
 		Name:      req.Name,
 		TokenHash: tokenHash,

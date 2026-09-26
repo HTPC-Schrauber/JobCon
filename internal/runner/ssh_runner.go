@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"net"
 	"os"
 	"path/filepath"
@@ -71,7 +72,7 @@ func NewSSHRunner(defaultKeyPath string, timeoutSec, keepaliveSec int, scriptsDi
 }
 
 // buildClientConfig prepares SSH ClientConfig with key auth and hostkey verification
-func (r *SSHRunner) buildClientConfig(server *db.Server) (*ssh.ClientConfig, error) {
+func (r *SSHRunner) buildClientConfig(server *domain.Server) (*ssh.ClientConfig, error) {
 	keyPath := server.SSHKeyPath
 	if keyPath == "" {
 		keyPath = r.defaultKeyPath
@@ -145,7 +146,7 @@ func (r *SSHRunner) buildClientConfig(server *db.Server) (*ssh.ClientConfig, err
 // for the given server. When server.HostKey is present, it strictly verifies that the presented
 // host key matches. When server.HostKey is empty, the presented key is trusted, persisted to
 // the database (if db is configured), and remembered on the server object.
-func (r *SSHRunner) buildHostKeyCallback(server *db.Server) ssh.HostKeyCallback {
+func (r *SSHRunner) buildHostKeyCallback(server *domain.Server) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		if server.HostKey != "" {
 			trustedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(server.HostKey))
@@ -177,7 +178,7 @@ func (r *SSHRunner) buildHostKeyCallback(server *db.Server) ssh.HostKeyCallback 
 }
 
 // TestConnection verifies SSH access and retrieves host diagnostics
-func (r *SSHRunner) TestConnection(ctx context.Context, server *db.Server) (*ConnectionTestResult, error) {
+func (r *SSHRunner) TestConnection(ctx context.Context, server *domain.Server) (*ConnectionTestResult, error) {
 	start := time.Now()
 	sshConfig, err := r.buildClientConfig(server)
 	if err != nil {
@@ -287,7 +288,7 @@ func (r *SSHRunner) TestConnection(ctx context.Context, server *db.Server) (*Con
 }
 
 // SetupServer creates the configured jobs and scripts directories and copies execution scripts to target
-func (r *SSHRunner) SetupServer(ctx context.Context, server *db.Server) (*ServerSetupResult, error) {
+func (r *SSHRunner) SetupServer(ctx context.Context, server *domain.Server) (*ServerSetupResult, error) {
 	jobsDir := server.JobsDir
 	if jobsDir == "" {
 		jobsDir = "/opt/talend/jobs"
@@ -445,7 +446,7 @@ func (r *SSHRunner) syncNexusAuthWithClient(client *ssh.Client, scriptsDir, user
 }
 
 // SyncNexusAuth deploys or updates .nexus_auth with 0600 permissions to the remote server
-func (r *SSHRunner) SyncNexusAuth(ctx context.Context, server *db.Server, user, pass string) error {
+func (r *SSHRunner) SyncNexusAuth(ctx context.Context, server *domain.Server, user, pass string) error {
 	sshConfig, err := r.buildClientConfig(server)
 	if err != nil {
 		return fmt.Errorf("SSH-Konfiguration ungültig: %w", err)
@@ -473,7 +474,7 @@ func (r *SSHRunner) SyncNexusAuth(ctx context.Context, server *db.Server, user, 
 }
 
 // RunCommand executes a command remotely on the target server, streaming output to writer
-func (r *SSHRunner) RunCommand(ctx context.Context, server *db.Server, command string, output io.Writer) (int, error) {
+func (r *SSHRunner) RunCommand(ctx context.Context, server *domain.Server, command string, output io.Writer) (int, error) {
 	sshConfig, err := r.buildClientConfig(server)
 	if err != nil {
 		if output != nil {

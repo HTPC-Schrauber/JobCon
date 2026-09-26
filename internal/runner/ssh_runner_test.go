@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"net"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ func TestSetupServer_MissingScriptsDir(t *testing.T) {
 	nonExistent := filepath.Join(tmpDir, "missing_scripts")
 
 	runner := NewSSHRunner("/tmp/key", 1, 1, nonExistent)
-	server := &db.Server{
+	server := &domain.Server{
 		Host: "127.0.0.1",
 		Port: 22,
 		User: "root",
@@ -57,7 +58,7 @@ func TestSetupServer_MissingJobconCtl(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tmpDir, "run_job.sh"), []byte("#!/bin/bash\necho run\n"), 0755)
 
 	runner := NewSSHRunner("/tmp/key", 1, 1, tmpDir)
-	server := &db.Server{
+	server := &domain.Server{
 		Host: "127.0.0.1",
 		Port: 22,
 		User: "root",
@@ -93,7 +94,7 @@ func TestBuildClientConfig_MissingKeyDiagnostics(t *testing.T) {
 
 	// Case 1: Server configured with host path /home/otheruser/.ssh/id_test.key
 	// Candidate exists in current HOME/.ssh/id_test.key -> should include hint
-	serverWithHostPath := &db.Server{
+	serverWithHostPath := &domain.Server{
 		Name:       "Testserver",
 		Host:       "127.0.0.1",
 		SSHKeyPath: "/home/otheruser/.ssh/id_test.key",
@@ -111,7 +112,7 @@ func TestBuildClientConfig_MissingKeyDiagnostics(t *testing.T) {
 	}
 
 	// Case 2: Server configured with non-existent key where no candidate exists
-	serverNoCandidate := &db.Server{
+	serverNoCandidate := &domain.Server{
 		Name:       "Testserver",
 		Host:       "127.0.0.1",
 		SSHKeyPath: "/opt/nowhere/nonexistent.key",
@@ -125,7 +126,7 @@ func TestBuildClientConfig_MissingKeyDiagnostics(t *testing.T) {
 	}
 
 	// Case 3: Empty key path
-	serverEmpty := &db.Server{
+	serverEmpty := &domain.Server{
 		Name:       "Testserver",
 		Host:       "127.0.0.1",
 		SSHKeyPath: "",
@@ -141,7 +142,7 @@ func TestBuildClientConfig_MissingKeyDiagnostics(t *testing.T) {
 
 func TestRunCommand_WritesErrorToOutput(t *testing.T) {
 	runner := NewSSHRunner("", 5, 5)
-	server := &db.Server{
+	server := &domain.Server{
 		Name:       "Server1",
 		Host:       "127.0.0.1",
 		Port:       22,
@@ -192,7 +193,7 @@ func TestHostKeyCallback_TOFUAndMismatch(t *testing.T) {
 	}
 	defer database.Close()
 
-	server := &db.Server{
+	server := &domain.Server{
 		ID:         "srv-tofu-1",
 		Name:       "TOFU Test Server",
 		Host:       "192.168.1.100",
@@ -326,7 +327,7 @@ func TestRunCommand_RejectionSanitized(t *testing.T) {
 	var port int
 	fmt.Sscanf(portStr, "%d", &port)
 
-	server := &db.Server{
+	server := &domain.Server{
 		Host:       host,
 		Port:       port,
 		User:       "testuser",
@@ -352,4 +353,3 @@ func TestRunCommand_RejectionSanitized(t *testing.T) {
 		t.Errorf("secret leaked into output: %s", output.String())
 	}
 }
-

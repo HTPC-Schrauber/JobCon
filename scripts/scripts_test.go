@@ -309,4 +309,3 @@ func TestJobconCtlNexusAuthFile(t *testing.T) {
 		t.Errorf("expected 0600 permissions on .nexus_auth, got %o", info.Mode().Perm())
 	}
 }
-

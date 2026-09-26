@@ -58,7 +58,7 @@
         <div style="margin-bottom: 20px;">
             <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
                 <input type="checkbox" id="ldapEnabled" name="ldap_enabled" value="true" {{if .LDAPConfig.Enabled}}checked{{end}}>
-                <span style="font-weight: 600; color: #fff;">LDAP / Active Directory Authentifizierung aktivieren</span>
+                <span style="font-weight: 600; color: #fff; font-size: 13.5px; text-transform: none; letter-spacing: normal;">LDAP / Active Directory Authentifizierung aktivieren</span>
             </label>
         </div>
 
@@ -83,7 +83,7 @@
         <div style="margin-bottom: 8px;">
             <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
                 <input type="checkbox" id="ldapInsecureSkipVerify" name="ldap_insecure_skip_verify" value="true" {{if .LDAPConfig.InsecureSkipVerify}}checked{{end}}>
-                <span style="color: #e4e4e7; font-size: 13px;">TLS-Zertifikatsprüfung überspringen (InsecureSkipVerify - nützlich für interne CAs oder selbstsignierte Zertifikate)</span>
+                <span style="color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">TLS-Zertifikatsprüfung überspringen (InsecureSkipVerify - nützlich für interne CAs oder selbstsignierte Zertifikate)</span>
             </label>
         </div>
     </div>

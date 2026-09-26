@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"jobcon/internal/storage"
 	"log"
 	"strconv"
@@ -27,7 +28,7 @@ var (
 )
 
 type ActiveExecution struct {
-	Execution   *db.Execution
+	Execution   *domain.Execution
 	Broadcaster *LogBroadcaster
 	Cancel      context.CancelFunc
 }
@@ -56,7 +57,7 @@ func NewExecutionManager(database *db.DB, storage *storage.LogStorage, sshRunner
 }
 
 // BuildNexusURL constructs the standard Maven repository download URL for Talend job ZIPs
-func (m *ExecutionManager) BuildNexusURL(job *db.Job, version string) string {
+func (m *ExecutionManager) BuildNexusURL(job *domain.Job, version string) string {
 	groupPath := strings.ReplaceAll(job.GroupID, ".", "/")
 	baseURL, _ := m.db.GetSetting("nexus_base_url", m.nexusCfg.BaseURL)
 	baseURL = strings.TrimRight(baseURL, "/")
@@ -89,7 +90,7 @@ func (m *ExecutionManager) StartExecution(
 	contextName string,
 	params map[string]string,
 	triggeredBy string,
-) (*db.Execution, error) {
+) (*domain.Execution, error) {
 	if !validIdentifierRegex.MatchString(jobID) {
 		return nil, fmt.Errorf("ungültige Job-ID: %q", jobID)
 	}
@@ -160,7 +161,7 @@ func (m *ExecutionManager) StartExecution(
 	executionID := fmt.Sprintf("exec_%s", uuid.New().String()[:8])
 
 	// Create DB execution record in running state
-	execution := &db.Execution{
+	execution := &domain.Execution{
 		ID:          executionID,
 		JobID:       jobID,
 		JobName:     job.Name,
@@ -187,7 +188,7 @@ func (m *ExecutionManager) StartBulkRunQueue(
 	jobIDs []string,
 	concurrency int,
 	triggeredBy string,
-) ([]*db.Execution, error) {
+) ([]*domain.Execution, error) {
 	if concurrency <= 0 {
 		concurrencyStr, _ := m.db.GetSetting("max_concurrent_jobs", strconv.Itoa(DefaultBulkConcurrency))
 		if c, err := strconv.Atoi(concurrencyStr); err == nil && c > 0 && c <= MaxBulkConcurrency {
@@ -201,13 +202,13 @@ func (m *ExecutionManager) StartBulkRunQueue(
 	}
 
 	type queueItem struct {
-		job    *db.Job
-		server *db.Server
-		exec   *db.Execution
+		job    *domain.Job
+		server *domain.Server
+		exec   *domain.Execution
 	}
 
 	var items []queueItem
-	var execs []*db.Execution
+	var execs []*domain.Execution
 
 	for _, id := range jobIDs {
 		job, err := m.db.GetJob(id)
@@ -238,7 +239,7 @@ func (m *ExecutionManager) StartBulkRunQueue(
 		}
 
 		executionID := fmt.Sprintf("exec_%s", uuid.New().String()[:8])
-		execution := &db.Execution{
+		execution := &domain.Execution{
 			ID:          executionID,
 			JobID:       job.ID,
 			JobName:     job.Name,
@@ -296,9 +297,9 @@ func (m *ExecutionManager) StartBulkRunQueue(
 }
 
 func (m *ExecutionManager) executeJobCommand(
-	server *db.Server,
-	job *db.Job,
-	execution *db.Execution,
+	server *domain.Server,
+	job *domain.Job,
+	execution *domain.Execution,
 	targetVersion string,
 	action string,
 	targetContext string,
@@ -576,4 +577,3 @@ func (m *ExecutionManager) SyncNexusAuthToAllServers(ctx context.Context) {
 		_ = m.sshRunner.SyncNexusAuth(ctx, &servers[i], user, pass)
 	}
 }
-

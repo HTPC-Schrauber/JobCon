@@ -4,6 +4,7 @@ import (
 	"context"
 	"jobcon/internal/config"
 	"jobcon/internal/db"
+	"jobcon/internal/domain"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -194,7 +195,7 @@ func TestMultiAuthenticatorLocalUser(t *testing.T) {
 	multiAuth := NewMultiAuthenticator(database, cfg)
 
 	hash, _ := HashPassword("LocalPass123!")
-	localUser := &db.User{
+	localUser := &domain.User{
 		ID:           "u1",
 		Username:     "alice",
 		PasswordHash: hash,
@@ -225,4 +226,3 @@ func TestMultiAuthenticatorLocalUser(t *testing.T) {
 		t.Errorf("expected ErrUserInactive, got %v", err)
 	}
 }
-

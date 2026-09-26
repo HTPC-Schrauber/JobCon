@@ -32,8 +32,8 @@ func TestValidateNexusURL_Valid(t *testing.T) {
 
 func TestValidateNexusURL_Invalid(t *testing.T) {
 	tests := []struct {
-		url     string
-		errSub  string
+		url    string
+		errSub string
 	}{
 		{"", "darf nicht leer sein"},
 		{"   ", "darf nicht leer sein"},

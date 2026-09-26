@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"jobcon/internal/crypto"
+	"jobcon/internal/domain"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -19,120 +20,11 @@ var (
 	ErrLastAdminProtection = errors.New("der letzte aktive lokale Administrator darf nicht gelöscht, deaktiviert oder herabgestuft werden")
 )
 
-type Server struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	Host          string     `json:"host"`
-	Port          int        `json:"port"`
-	User          string     `json:"user"`
-	SSHKeyPath         string     `json:"ssh_key_path"`
-	HostKey            string     `json:"host_key"`
-	HostKeyFingerprint string     `json:"host_key_fingerprint,omitempty"`
-	Status             string     `json:"status"` // "online", "offline", "unknown"
-	JobsDir       string     `json:"jobs_dir"`
-	ScriptsDir    string     `json:"scripts_dir"`
-	EnvFile       string     `json:"env_file"`
-	KeepReleases  int        `json:"keep_releases"`
-	LastCheckedAt *time.Time `json:"last_checked_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-}
-
-type User struct {
-	ID           string     `json:"id"`
-	Username     string     `json:"username"`
-	PasswordHash string     `json:"-"`
-	DisplayName  string     `json:"display_name"`
-	Email        string     `json:"email"`
-	Role         string     `json:"role"`        // "admin", "operator", "viewer"
-	AuthSource   string     `json:"auth_source"` // "local", "ldap"
-	IsActive     bool       `json:"is_active"`
-	CreatedAt    time.Time  `json:"created_at"`
-	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
-}
-
-type Job struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	ServerID        string    `json:"server_id"`
-	ServerName      string    `json:"server_name,omitempty"`
-	GroupID         string    `json:"group_id"`
-	ArtifactID      string    `json:"artifact_id"`
-	ActiveVersion   string    `json:"active_version"`
-	NexusRepo       string    `json:"nexus_repo"`
-	DefaultContext  string    `json:"default_context"`
-	AllowConcurrent bool      `json:"allow_concurrent"`
-	RetentionRuns   int       `json:"retention_runs"`
-	EnvFile         string    `json:"env_file"`
-	IsDeployed      bool      `json:"is_deployed"`
-	DeployedVersion string    `json:"deployed_version,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-}
-
-type JobWithRunInfo struct {
-	Job
-	LastRunID         string     `json:"last_run_id,omitempty"`
-	LastRunAction     string     `json:"last_run_action,omitempty"`
-	LastRunStatus     string     `json:"last_run_status,omitempty"`
-	LastRunStartedAt  *time.Time `json:"last_run_started_at,omitempty"`
-	LastRunExitCode   *int       `json:"last_run_exit_code,omitempty"`
-	LastRunDurationMS *int64     `json:"last_run_duration_ms,omitempty"`
-}
-
-type JobFilter struct {
-	Search     string `json:"search"`
-	GroupID    string `json:"group_id"`
-	ArtifactID string `json:"artifact_id"`
-	ServerID   string `json:"server_id"`
-	Status     string `json:"status"`
-	Page      int    `json:"page"`
-	PageSize  int    `json:"page_size"`
-	SortBy    string `json:"sort_by"`    // "name", "group_id", "server", "version", "last_run"
-	SortOrder string `json:"sort_order"` // "asc", "desc"
-	GroupBy   string `json:"group_by"`   // e.g. "group_id"
-}
-
-type JobPageResult struct {
-	Jobs           []JobWithRunInfo `json:"jobs"`
-	TotalCount     int              `json:"total_count"`
-	TotalPages     int              `json:"total_pages"`
-	CurrentPage    int              `json:"current_page"`
-	PageSize       int              `json:"page_size"`
-	DistinctGroups []string         `json:"distinct_groups"`
-}
-
-type Execution struct {
-	ID          string     `json:"id"`
-	JobID       string     `json:"job_id"`
-	JobName     string     `json:"job_name,omitempty"`
-	Action      string     `json:"action"` // "run", "deploy"
-	Status      string     `json:"status"` // "pending", "running", "success", "failed", "aborted"
-	Version     string     `json:"version"`
-	Context     string     `json:"context,omitempty"`
-	ExitCode    *int       `json:"exit_code,omitempty"`
-	StartedAt   time.Time  `json:"started_at"`
-	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-	DurationMS  *int64     `json:"duration_ms,omitempty"`
-	LogPath     string     `json:"log_path"`
-	TriggeredBy string     `json:"triggered_by"`
-	Purged      bool       `json:"purged"`
-}
-
-type APIToken struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	TokenHash  string     `json:"-"`
-	Role       string     `json:"role"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-}
-
 // -----------------------------------------------------------------------------
 // SERVERS CRUD
 // -----------------------------------------------------------------------------
 
-func (db *DB) CreateServer(s *Server) error {
+func (db *DB) CreateServer(s *domain.Server) error {
 	s.CreatedAt = time.Now()
 	s.UpdatedAt = s.CreatedAt
 	if s.Port == 0 {
@@ -174,9 +66,9 @@ func calculateFingerprint(hostKey string) string {
 	return ssh.FingerprintSHA256(pk)
 }
 
-func (db *DB) GetServer(id string) (*Server, error) {
+func (db *DB) GetServer(id string) (*domain.Server, error) {
 	row := db.QueryRow(`SELECT id, name, host, port, user, ssh_key_path, host_key, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers WHERE id = ?`, id)
-	var s Server
+	var s domain.Server
 	err := row.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.HostKey, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -187,16 +79,16 @@ func (db *DB) GetServer(id string) (*Server, error) {
 	return &s, err
 }
 
-func (db *DB) ListServers() ([]Server, error) {
+func (db *DB) ListServers() ([]domain.Server, error) {
 	rows, err := db.Query(`SELECT id, name, host, port, user, ssh_key_path, host_key, status, jobs_dir, scripts_dir, env_file, keep_releases, last_checked_at, created_at, updated_at FROM servers ORDER BY name ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var servers []Server
+	var servers []domain.Server
 	for rows.Next() {
-		var s Server
+		var s domain.Server
 		if err := rows.Scan(&s.ID, &s.Name, &s.Host, &s.Port, &s.User, &s.SSHKeyPath, &s.HostKey, &s.Status, &s.JobsDir, &s.ScriptsDir, &s.EnvFile, &s.KeepReleases, &s.LastCheckedAt, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -223,7 +115,7 @@ func (db *DB) ResetServerHostKey(id string) error {
 	return db.UpdateServerHostKey(id, "")
 }
 
-func (db *DB) UpdateServer(s *Server) error {
+func (db *DB) UpdateServer(s *domain.Server) error {
 	s.UpdatedAt = time.Now()
 	if s.JobsDir == "" {
 		s.JobsDir = "/opt/talend/jobs"
@@ -259,7 +151,7 @@ func (db *DB) CountOnlineServers() (int, error) {
 	return count, err
 }
 
-func (db *DB) GetJobsByServerID(serverID string) ([]Job, error) {
+func (db *DB) GetJobsByServerID(serverID string) ([]domain.Job, error) {
 	rows, err := db.Query(`
 		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
@@ -271,9 +163,9 @@ func (db *DB) GetJobsByServerID(serverID string) ([]Job, error) {
 	}
 	defer rows.Close()
 
-	var jobs []Job
+	var jobs []domain.Job
 	for rows.Next() {
-		var j Job
+		var j domain.Job
 		var allowConcurrent int
 		var isDeployed int
 		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
@@ -367,7 +259,7 @@ func (db *DB) CountActiveLocalAdmins() (int, error) {
 	return count, err
 }
 
-func (db *DB) CreateUser(u *User) error {
+func (db *DB) CreateUser(u *domain.User) error {
 	u.CreatedAt = time.Now()
 	query := `INSERT INTO users (id, username, password_hash, display_name, email, role, auth_source, is_active, created_at)
 	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -375,9 +267,9 @@ func (db *DB) CreateUser(u *User) error {
 	return err
 }
 
-func (db *DB) GetUserByUsername(username string) (*User, error) {
+func (db *DB) GetUserByUsername(username string) (*domain.User, error) {
 	row := db.QueryRow(`SELECT id, username, password_hash, display_name, email, role, auth_source, is_active, created_at, last_login_at FROM users WHERE LOWER(username) = LOWER(?)`, username)
-	var u User
+	var u domain.User
 	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Email, &u.Role, &u.AuthSource, &u.IsActive, &u.CreatedAt, &u.LastLoginAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -385,9 +277,9 @@ func (db *DB) GetUserByUsername(username string) (*User, error) {
 	return &u, err
 }
 
-func (db *DB) GetUserByID(id string) (*User, error) {
+func (db *DB) GetUserByID(id string) (*domain.User, error) {
 	row := db.QueryRow(`SELECT id, username, password_hash, display_name, email, role, auth_source, is_active, created_at, last_login_at FROM users WHERE id = ?`, id)
-	var u User
+	var u domain.User
 	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Email, &u.Role, &u.AuthSource, &u.IsActive, &u.CreatedAt, &u.LastLoginAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -395,16 +287,16 @@ func (db *DB) GetUserByID(id string) (*User, error) {
 	return &u, err
 }
 
-func (db *DB) ListUsers() ([]User, error) {
+func (db *DB) ListUsers() ([]domain.User, error) {
 	rows, err := db.Query(`SELECT id, username, password_hash, display_name, email, role, auth_source, is_active, created_at, last_login_at FROM users ORDER BY username ASC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var users []User
+	var users []domain.User
 	for rows.Next() {
-		var u User
+		var u domain.User
 		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName, &u.Email, &u.Role, &u.AuthSource, &u.IsActive, &u.CreatedAt, &u.LastLoginAt); err != nil {
 			return nil, err
 		}
@@ -413,7 +305,7 @@ func (db *DB) ListUsers() ([]User, error) {
 	return users, rows.Err()
 }
 
-func (db *DB) UpdateUser(u *User) error {
+func (db *DB) UpdateUser(u *domain.User) error {
 	existing, err := db.GetUserByID(u.ID)
 	if err != nil {
 		return err
@@ -499,7 +391,7 @@ func (db *DB) DeleteUser(id string) error {
 // JOBS CRUD
 // -----------------------------------------------------------------------------
 
-func (db *DB) CreateJob(j *Job) error {
+func (db *DB) CreateJob(j *domain.Job) error {
 	j.CreatedAt = time.Now()
 	j.UpdatedAt = j.CreatedAt
 	if j.DefaultContext == "" {
@@ -524,14 +416,14 @@ func (db *DB) CreateJob(j *Job) error {
 	return err
 }
 
-func (db *DB) GetJob(id string) (*Job, error) {
+func (db *DB) GetJob(id string) (*domain.Job, error) {
 	row := db.QueryRow(`
 		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
 		LEFT JOIN servers s ON j.server_id = s.id
 		WHERE j.id = ?`, id)
 
-	var j Job
+	var j domain.Job
 	var allowConcurrent int
 	var isDeployed int
 	err := row.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt)
@@ -543,7 +435,7 @@ func (db *DB) GetJob(id string) (*Job, error) {
 	return &j, err
 }
 
-func (db *DB) ListJobs() ([]Job, error) {
+func (db *DB) ListJobs() ([]domain.Job, error) {
 	rows, err := db.Query(`
 		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
@@ -554,9 +446,9 @@ func (db *DB) ListJobs() ([]Job, error) {
 	}
 	defer rows.Close()
 
-	var jobs []Job
+	var jobs []domain.Job
 	for rows.Next() {
-		var j Job
+		var j domain.Job
 		var allowConcurrent int
 		var isDeployed int
 		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
@@ -569,7 +461,7 @@ func (db *DB) ListJobs() ([]Job, error) {
 	return jobs, rows.Err()
 }
 
-func (db *DB) GetJobsByArtifact(artifactID string) ([]Job, error) {
+func (db *DB) GetJobsByArtifact(artifactID string) ([]domain.Job, error) {
 	rows, err := db.Query(`
 		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
@@ -581,9 +473,9 @@ func (db *DB) GetJobsByArtifact(artifactID string) ([]Job, error) {
 	}
 	defer rows.Close()
 
-	var jobs []Job
+	var jobs []domain.Job
 	for rows.Next() {
-		var j Job
+		var j domain.Job
 		var allowConcurrent int
 		var isDeployed int
 		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
@@ -596,7 +488,7 @@ func (db *DB) GetJobsByArtifact(artifactID string) ([]Job, error) {
 	return jobs, rows.Err()
 }
 
-func (db *DB) GetJobsByArtifactOnServer(artifactID, serverID string) ([]Job, error) {
+func (db *DB) GetJobsByArtifactOnServer(artifactID, serverID string) ([]domain.Job, error) {
 	rows, err := db.Query(`
 		SELECT j.id, j.name, j.server_id, COALESCE(s.name, ''), j.group_id, j.artifact_id, j.active_version, j.nexus_repo, j.default_context, j.allow_concurrent, j.retention_runs, j.env_file, j.is_deployed, j.deployed_version, j.created_at, j.updated_at
 		FROM jobs j
@@ -608,9 +500,9 @@ func (db *DB) GetJobsByArtifactOnServer(artifactID, serverID string) ([]Job, err
 	}
 	defer rows.Close()
 
-	var jobs []Job
+	var jobs []domain.Job
 	for rows.Next() {
-		var j Job
+		var j domain.Job
 		var allowConcurrent int
 		var isDeployed int
 		if err := rows.Scan(&j.ID, &j.Name, &j.ServerID, &j.ServerName, &j.GroupID, &j.ArtifactID, &j.ActiveVersion, &j.NexusRepo, &j.DefaultContext, &allowConcurrent, &j.RetentionRuns, &j.EnvFile, &isDeployed, &j.DeployedVersion, &j.CreatedAt, &j.UpdatedAt); err != nil {
@@ -623,7 +515,7 @@ func (db *DB) GetJobsByArtifactOnServer(artifactID, serverID string) ([]Job, err
 	return jobs, rows.Err()
 }
 
-func (db *DB) UpdateJob(j *Job) error {
+func (db *DB) UpdateJob(j *domain.Job) error {
 	j.UpdatedAt = time.Now()
 	allowConcurrent := 0
 	if j.AllowConcurrent {
@@ -690,7 +582,7 @@ func (db *DB) DeleteJob(id string) error {
 // EXECUTIONS CRUD
 // -----------------------------------------------------------------------------
 
-func (db *DB) CreateExecution(e *Execution) error {
+func (db *DB) CreateExecution(e *domain.Execution) error {
 	e.StartedAt = time.Now()
 	query := `INSERT INTO executions (id, job_id, action, status, version, context, started_at, log_path, triggered_by, purged)
 	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -698,14 +590,14 @@ func (db *DB) CreateExecution(e *Execution) error {
 	return err
 }
 
-func (db *DB) GetExecution(id string) (*Execution, error) {
+func (db *DB) GetExecution(id string) (*domain.Execution, error) {
 	row := db.QueryRow(`
 		SELECT e.id, e.job_id, COALESCE(j.name, ''), e.action, e.status, e.version, COALESCE(e.context, ''), e.exit_code, e.started_at, e.finished_at, e.duration_ms, e.log_path, e.triggered_by, e.purged
 		FROM executions e
 		LEFT JOIN jobs j ON e.job_id = j.id
 		WHERE e.id = ?`, id)
 
-	var e Execution
+	var e domain.Execution
 	var purged int
 	err := row.Scan(&e.ID, &e.JobID, &e.JobName, &e.Action, &e.Status, &e.Version, &e.Context, &e.ExitCode, &e.StartedAt, &e.FinishedAt, &e.DurationMS, &e.LogPath, &e.TriggeredBy, &purged)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -715,11 +607,11 @@ func (db *DB) GetExecution(id string) (*Execution, error) {
 	return &e, err
 }
 
-func (db *DB) ListExecutions(limit int) ([]Execution, error) {
+func (db *DB) ListExecutions(limit int) ([]domain.Execution, error) {
 	return db.ListExecutionsFiltered("", limit)
 }
 
-func (db *DB) ListExecutionsFiltered(status string, limit int) ([]Execution, error) {
+func (db *DB) ListExecutionsFiltered(status string, limit int) ([]domain.Execution, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -743,9 +635,9 @@ func (db *DB) ListExecutionsFiltered(status string, limit int) ([]Execution, err
 	}
 	defer rows.Close()
 
-	var execs []Execution
+	var execs []domain.Execution
 	for rows.Next() {
-		var e Execution
+		var e domain.Execution
 		var purged int
 		if err := rows.Scan(&e.ID, &e.JobID, &e.JobName, &e.Action, &e.Status, &e.Version, &e.Context, &e.ExitCode, &e.StartedAt, &e.FinishedAt, &e.DurationMS, &e.LogPath, &e.TriggeredBy, &purged); err != nil {
 			return nil, err
@@ -756,7 +648,7 @@ func (db *DB) ListExecutionsFiltered(status string, limit int) ([]Execution, err
 	return execs, rows.Err()
 }
 
-func (db *DB) ListExecutionsByJob(jobID string, limit int) ([]Execution, error) {
+func (db *DB) ListExecutionsByJob(jobID string, limit int) ([]domain.Execution, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -771,9 +663,9 @@ func (db *DB) ListExecutionsByJob(jobID string, limit int) ([]Execution, error) 
 	}
 	defer rows.Close()
 
-	var execs []Execution
+	var execs []domain.Execution
 	for rows.Next() {
-		var e Execution
+		var e domain.Execution
 		var purged int
 		if err := rows.Scan(&e.ID, &e.JobID, &e.JobName, &e.Action, &e.Status, &e.Version, &e.Context, &e.ExitCode, &e.StartedAt, &e.FinishedAt, &e.DurationMS, &e.LogPath, &e.TriggeredBy, &purged); err != nil {
 			return nil, err
@@ -811,7 +703,7 @@ func (db *DB) UpdateExecutionStatus(id, status string, exitCode *int, durationMS
 	return err
 }
 
-func (db *DB) GetOldExecutionsForRetention(jobID string, keepCount int) ([]Execution, error) {
+func (db *DB) GetOldExecutionsForRetention(jobID string, keepCount int) ([]domain.Execution, error) {
 	rows, err := db.Query(`
 		SELECT id, job_id, action, status, version, log_path, started_at
 		FROM executions
@@ -823,9 +715,9 @@ func (db *DB) GetOldExecutionsForRetention(jobID string, keepCount int) ([]Execu
 	}
 	defer rows.Close()
 
-	var execs []Execution
+	var execs []domain.Execution
 	for rows.Next() {
-		var e Execution
+		var e domain.Execution
 		if err := rows.Scan(&e.ID, &e.JobID, &e.Action, &e.Status, &e.Version, &e.LogPath, &e.StartedAt); err != nil {
 			return nil, err
 		}
@@ -843,7 +735,7 @@ func (db *DB) MarkExecutionPurged(id string) error {
 // API TOKENS CRUD
 // -----------------------------------------------------------------------------
 
-func (db *DB) CreateAPIToken(t *APIToken) error {
+func (db *DB) CreateAPIToken(t *domain.APIToken) error {
 	t.CreatedAt = time.Now()
 	if t.Role == "" {
 		t.Role = "operator"
@@ -853,9 +745,9 @@ func (db *DB) CreateAPIToken(t *APIToken) error {
 	return err
 }
 
-func (db *DB) GetAPITokenByHash(hash string) (*APIToken, error) {
+func (db *DB) GetAPITokenByHash(hash string) (*domain.APIToken, error) {
 	row := db.QueryRow(`SELECT id, name, token_hash, role, created_at, last_used_at FROM api_tokens WHERE token_hash = ?`, hash)
-	var t APIToken
+	var t domain.APIToken
 	err := row.Scan(&t.ID, &t.Name, &t.TokenHash, &t.Role, &t.CreatedAt, &t.LastUsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -869,16 +761,16 @@ func (db *DB) UpdateAPITokenLastUsed(id string) error {
 	return err
 }
 
-func (db *DB) ListAPITokens() ([]APIToken, error) {
+func (db *DB) ListAPITokens() ([]domain.APIToken, error) {
 	rows, err := db.Query(`SELECT id, name, role, created_at, last_used_at FROM api_tokens ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var tokens []APIToken
+	var tokens []domain.APIToken
 	for rows.Next() {
-		var t APIToken
+		var t domain.APIToken
 		if err := rows.Scan(&t.ID, &t.Name, &t.Role, &t.CreatedAt, &t.LastUsedAt); err != nil {
 			return nil, err
 		}
@@ -991,7 +883,7 @@ func (db *DB) GetDistinctGroups() ([]string, error) {
 	return groups, rows.Err()
 }
 
-func (db *DB) ListJobsPaged(filter JobFilter) (*JobPageResult, error) {
+func (db *DB) ListJobsPaged(filter domain.JobFilter) (*domain.JobPageResult, error) {
 	page := filter.Page
 	if page <= 0 {
 		page = 1
@@ -1101,9 +993,9 @@ func (db *DB) ListJobsPaged(filter JobFilter) (*JobPageResult, error) {
 	}
 	defer rows.Close()
 
-	var jobs []JobWithRunInfo
+	var jobs []domain.JobWithRunInfo
 	for rows.Next() {
-		var item JobWithRunInfo
+		var item domain.JobWithRunInfo
 		var allowConcurrent int
 		var isDeployed int
 		if err := rows.Scan(
@@ -1122,7 +1014,7 @@ func (db *DB) ListJobsPaged(filter JobFilter) (*JobPageResult, error) {
 
 	distinctGroups, _ := db.GetDistinctGroups()
 
-	return &JobPageResult{
+	return &domain.JobPageResult{
 		Jobs:           jobs,
 		TotalCount:     totalCount,
 		TotalPages:     totalPages,

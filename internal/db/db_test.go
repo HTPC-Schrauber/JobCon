@@ -1,6 +1,7 @@
 package db
 
 import (
+	"jobcon/internal/domain"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,8 +19,8 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 	}
 	defer database.Close()
 
-	// Test Server CRUD
-	server := &Server{
+	// Test domain.Server CRUD
+	server := &domain.Server{
 		ID:         "srv-01",
 		Name:       "Test Server",
 		Host:       "127.0.0.1",
@@ -81,8 +82,8 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 		t.Errorf("expected empty host_key after reset, got %q", resetServer.HostKey)
 	}
 
-	// Test Job CRUD
-	job := &Job{
+	// Test domain.Job CRUD
+	job := &domain.Job{
 		ID:            "job-01",
 		Name:          "sync_test",
 		ServerID:      "srv-01",
@@ -103,8 +104,8 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 		t.Errorf("expected active version '1.0.0', got %q", fetchedJob.ActiveVersion)
 	}
 
-	// Test Execution CRUD
-	exec := &Execution{
+	// Test domain.Execution CRUD
+	exec := &domain.Execution{
 		ID:          "exec-01",
 		JobID:       "job-01",
 		Action:      "run",
@@ -140,7 +141,7 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 	}
 
 	// Test ListJobsPaged
-	paged, err := database.ListJobsPaged(JobFilter{Page: 1, PageSize: 10})
+	paged, err := database.ListJobsPaged(domain.JobFilter{Page: 1, PageSize: 10})
 	if err != nil {
 		t.Fatalf("failed to list paged jobs: %v", err)
 	}
@@ -160,8 +161,8 @@ func TestDBMigrationsAndCRUD(t *testing.T) {
 		t.Errorf("expected job to be deployed v1.2.3, got is_deployed=%v, ver=%s (err: %v)", jobCheck.IsDeployed, jobCheck.DeployedVersion, err)
 	}
 
-	// Test User Preferences
-	_ = database.CreateUser(&User{ID: "u-01", Username: "prefuser", PasswordHash: "hash", DisplayName: "Pref User", Role: "viewer"})
+	// Test domain.User Preferences
+	_ = database.CreateUser(&domain.User{ID: "u-01", Username: "prefuser", PasswordHash: "hash", DisplayName: "Pref User", Role: "viewer"})
 	if err := database.SetUserPreference("u-01", "page_size", "50"); err != nil {
 		t.Fatalf("failed to set user preference: %v", err)
 	}
@@ -179,12 +180,12 @@ func TestListJobsPagedGroupingAndSorting(t *testing.T) {
 	}
 	defer database.Close()
 
-	_ = database.CreateServer(&Server{ID: "srv-01", Name: "Server 1", Host: "127.0.0.1", User: "talend"})
+	_ = database.CreateServer(&domain.Server{ID: "srv-01", Name: "Server 1", Host: "127.0.0.1", User: "talend"})
 
 	// Create jobs across two groups:
 	// group_b: Alpha, Gamma
 	// group_a: Zeta, Beta
-	jobs := []*Job{
+	jobs := []*domain.Job{
 		{ID: "j1", Name: "Alpha", ServerID: "srv-01", GroupID: "group_b", ArtifactID: "art1", ActiveVersion: "1.0", NexusRepo: "releases"},
 		{ID: "j2", Name: "Zeta", ServerID: "srv-01", GroupID: "group_a", ArtifactID: "art2", ActiveVersion: "1.0", NexusRepo: "releases"},
 		{ID: "j3", Name: "Beta", ServerID: "srv-01", GroupID: "group_a", ArtifactID: "art3", ActiveVersion: "1.0", NexusRepo: "releases"},
@@ -197,7 +198,7 @@ func TestListJobsPagedGroupingAndSorting(t *testing.T) {
 	}
 
 	// 1. Without grouping, sort by Name ASC: Alpha, Beta, Gamma, Zeta
-	resNoGroup, err := database.ListJobsPaged(JobFilter{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc"})
+	resNoGroup, err := database.ListJobsPaged(domain.JobFilter{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc"})
 	if err != nil {
 		t.Fatalf("failed to list jobs: %v", err)
 	}
@@ -215,7 +216,7 @@ func TestListJobsPagedGroupingAndSorting(t *testing.T) {
 	// 2. With grouping (group_id), sort by Name ASC:
 	// group_a: Beta, Zeta
 	// group_b: Alpha, Gamma
-	resGroupAsc, err := database.ListJobsPaged(JobFilter{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", GroupBy: "group_id"})
+	resGroupAsc, err := database.ListJobsPaged(domain.JobFilter{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "asc", GroupBy: "group_id"})
 	if err != nil {
 		t.Fatalf("failed to list jobs with grouping: %v", err)
 	}
@@ -233,7 +234,7 @@ func TestListJobsPagedGroupingAndSorting(t *testing.T) {
 	// 3. With grouping (group_id), sort by Name DESC:
 	// group_a: Zeta, Beta
 	// group_b: Gamma, Alpha
-	resGroupDesc, err := database.ListJobsPaged(JobFilter{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "desc", GroupBy: "group_id"})
+	resGroupDesc, err := database.ListJobsPaged(domain.JobFilter{Page: 1, PageSize: 10, SortBy: "name", SortOrder: "desc", GroupBy: "group_id"})
 	if err != nil {
 		t.Fatalf("failed to list jobs with grouping desc: %v", err)
 	}
@@ -259,7 +260,7 @@ func TestServerDeletionAndReassignment(t *testing.T) {
 	}
 	defer database.Close()
 
-	s1 := &Server{
+	s1 := &domain.Server{
 		ID:         "srv-del-1",
 		Name:       "Server 1",
 		Host:       "10.0.0.1",
@@ -269,7 +270,7 @@ func TestServerDeletionAndReassignment(t *testing.T) {
 		JobsDir:    "/custom/jobs",
 		ScriptsDir: "/custom/scripts",
 	}
-	s2 := &Server{
+	s2 := &domain.Server{
 		ID:         "srv-del-2",
 		Name:       "Server 2",
 		Host:       "10.0.0.2",
@@ -301,7 +302,7 @@ func TestServerDeletionAndReassignment(t *testing.T) {
 	}
 
 	// Create job attached to srv-del-1
-	j1 := &Job{
+	j1 := &domain.Job{
 		ID:            "job-del-1",
 		Name:          "Job Del 1",
 		ServerID:      "srv-del-1",
@@ -361,13 +362,13 @@ func TestGetJobsByArtifact(t *testing.T) {
 	}
 	defer database.Close()
 
-	_ = database.CreateServer(&Server{ID: "srv-1", Name: "Server 1", Host: "10.0.0.1", SSHKeyPath: "/tmp/key"})
-	_ = database.CreateServer(&Server{ID: "srv-2", Name: "Server 2", Host: "10.0.0.2", SSHKeyPath: "/tmp/key"})
+	_ = database.CreateServer(&domain.Server{ID: "srv-1", Name: "Server 1", Host: "10.0.0.1", SSHKeyPath: "/tmp/key"})
+	_ = database.CreateServer(&domain.Server{ID: "srv-2", Name: "Server 2", Host: "10.0.0.2", SSHKeyPath: "/tmp/key"})
 
-	j1 := &Job{ID: "job-1", Name: "Job 1", ServerID: "srv-1", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "1.0", NexusRepo: "r"}
-	j2 := &Job{ID: "job-2", Name: "Job 2", ServerID: "srv-1", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "2.0", NexusRepo: "r"}
-	j3 := &Job{ID: "job-3", Name: "Job 3", ServerID: "srv-2", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "1.0", NexusRepo: "r"}
-	j4 := &Job{ID: "job-4", Name: "Job 4", ServerID: "srv-2", GroupID: "grp", ArtifactID: "art-y", ActiveVersion: "1.0", NexusRepo: "r"}
+	j1 := &domain.Job{ID: "job-1", Name: "Job 1", ServerID: "srv-1", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "1.0", NexusRepo: "r"}
+	j2 := &domain.Job{ID: "job-2", Name: "Job 2", ServerID: "srv-1", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "2.0", NexusRepo: "r"}
+	j3 := &domain.Job{ID: "job-3", Name: "Job 3", ServerID: "srv-2", GroupID: "grp", ArtifactID: "art-x", ActiveVersion: "1.0", NexusRepo: "r"}
+	j4 := &domain.Job{ID: "job-4", Name: "Job 4", ServerID: "srv-2", GroupID: "grp", ArtifactID: "art-y", ActiveVersion: "1.0", NexusRepo: "r"}
 
 	_ = database.CreateJob(j1)
 	_ = database.CreateJob(j2)
@@ -420,16 +421,16 @@ func TestNexusArtifactsCacheAndCounts(t *testing.T) {
 	}
 
 	// Add servers and verify count
-	_ = database.CreateServer(&Server{ID: "s1", Name: "S1", Host: "1.1.1.1", SSHKeyPath: "/k", Status: "online"})
-	_ = database.CreateServer(&Server{ID: "s2", Name: "S2", Host: "1.1.1.2", SSHKeyPath: "/k", Status: "offline"})
+	_ = database.CreateServer(&domain.Server{ID: "s1", Name: "S1", Host: "1.1.1.1", SSHKeyPath: "/k", Status: "online"})
+	_ = database.CreateServer(&domain.Server{ID: "s2", Name: "S2", Host: "1.1.1.2", SSHKeyPath: "/k", Status: "offline"})
 	online, _ = database.CountOnlineServers()
 	if online != 1 {
 		t.Errorf("expected 1 online server, got %d", online)
 	}
 
 	// Add execution in pending state
-	_ = database.CreateJob(&Job{ID: "j1", Name: "J1", ServerID: "s1", GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0", NexusRepo: "r"})
-	_ = database.CreateExecution(&Execution{ID: "e1", JobID: "j1", Action: "run", Status: "pending", Version: "1.0", TriggeredBy: "test"})
+	_ = database.CreateJob(&domain.Job{ID: "j1", Name: "J1", ServerID: "s1", GroupID: "g", ArtifactID: "a", ActiveVersion: "1.0", NexusRepo: "r"})
+	_ = database.CreateExecution(&domain.Execution{ID: "e1", JobID: "j1", Action: "run", Status: "pending", Version: "1.0", TriggeredBy: "test"})
 	active, _ = database.CountActiveExecutions()
 	if active != 1 {
 		t.Errorf("expected 1 active execution, got %d", active)
@@ -499,7 +500,7 @@ func TestLocalAdminProtectionAndLDAPUsers(t *testing.T) {
 	}
 
 	// Create local admin 1
-	admin1 := &User{
+	admin1 := &domain.User{
 		ID:           "u-admin-1",
 		Username:     "localadmin1",
 		PasswordHash: "hash1",
@@ -526,11 +527,11 @@ func TestLocalAdminProtectionAndLDAPUsers(t *testing.T) {
 	}
 
 	// Create LDAP user
-	ldapUser := &User{
+	ldapUser := &domain.User{
 		ID:           "u-ldap-1",
 		Username:     "ldapuser1",
 		PasswordHash: "",
-		DisplayName:  "LDAP User 1",
+		DisplayName:  "LDAP domain.User 1",
 		Email:        "ldapuser1@firma.de",
 		Role:         "viewer",
 		AuthSource:   "ldap",
@@ -572,7 +573,7 @@ func TestLocalAdminProtectionAndLDAPUsers(t *testing.T) {
 	}
 
 	// Create local admin 2
-	admin2 := &User{
+	admin2 := &domain.User{
 		ID:           "u-admin-2",
 		Username:     "localadmin2",
 		PasswordHash: "hash2",
@@ -685,5 +686,3 @@ func TestEncryptedSettings(t *testing.T) {
 		t.Errorf("expected empty string, got %q", emptyVal)
 	}
 }
-
-
