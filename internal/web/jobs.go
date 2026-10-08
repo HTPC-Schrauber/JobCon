@@ -246,7 +246,7 @@ func (h *WebHandler) handleWebBulkRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/executions", http.StatusSeeOther)
 }
 
 func (h *WebHandler) handleWebBulkDeploy(w http.ResponseWriter, r *http.Request) {

@@ -607,7 +607,7 @@
             </select>
             <input type="text" id="pickerGroupInput" placeholder="{{call $.T "nexus.group_filter"}}" oninput="debouncedFetchNexusTree()">
         </div>
-        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 12px;">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 10px;">
             <input type="text" id="pickerArtifactInput" placeholder="{{call $.T "nexus.search_filter"}}" oninput="debouncedFetchNexusTree()">
             <button type="button" class="btn btn-secondary btn-sm" onclick="fetchNexusTree()">
                 <svg class="icon icon-sm"><use href="#icon-search"></use></svg>
@@ -615,8 +615,13 @@
             </button>
         </div>
 
-        <div id="nexusTreeContainer" class="nexus-tree" style="flex: 1; max-height: 400px; min-height: 180px;">
-            Lade Artefakte aus Nexus...
+        <!-- Info Status Bar -->
+        <div id="pickerStatusBar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11.5px; color: var(--text-muted);">
+            <div id="pickerCountInfo" style="display: flex; align-items: center; gap: 6px;"></div>
+        </div>
+
+        <div id="nexusTreeContainer" class="nexus-tree" style="flex: 1; max-height: 420px; min-height: 200px; overflow-y: auto;">
+            <div id="nexusRenderedItems">Lade Artefakte aus Nexus...</div>
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
@@ -1253,11 +1258,23 @@ function openQuickLog(execId, jobName) {
     window.location.href = '/executions/' + execId + '?from=jobs';
 }
 
-// Nexus Tree Browser Picker with Concurrency / Race Condition Fix
+// Nexus Tree Browser Picker with 50/50 Sliding Buffer (100 artifacts in DOM)
 let pickerTarget = 'new'; // 'new' or 'edit'
 let nexusAbortController = null;
 let searchSeq = 0;
 let nexusSearchTimer = null;
+
+const WINDOW_SIZE = 100;
+const SHIFT_STEP = 50;
+const TRIGGER_THRESHOLD = 180; // Distance in pixels from top/bottom to trigger sliding shift
+
+let windowTotalCount = 0;
+let windowCurrentOffset = 0;
+let windowRenderedCount = 0;
+let windowIsLoading = false;
+let windowCache = new Map();
+let scrollListenerAttached = false;
+let scrollPending = false;
 
 function openNexusPicker(target) {
     pickerTarget = target || 'new';
@@ -1274,13 +1291,25 @@ function openNexusPicker(target) {
     document.getElementById('pickerGroupInput').value = existingGroup;
     document.getElementById('pickerArtifactInput').value = existingArtifact;
     document.getElementById('nexusPickerModal').style.display = 'flex';
-    fetchNexusTree();
+
+    windowCache.clear();
+    windowCurrentOffset = 0;
+    windowTotalCount = 0;
+    windowRenderedCount = 0;
+    windowIsLoading = false;
+
+    attachNexusScrollListener();
+    loadWindow(0, null, true);
 }
 
 function closeNexusPicker() {
     if (nexusAbortController) {
         nexusAbortController.abort();
         nexusAbortController = null;
+    }
+    if (nexusSearchTimer) {
+        clearTimeout(nexusSearchTimer);
+        nexusSearchTimer = null;
     }
     document.getElementById('nexusPickerModal').style.display = 'none';
 }
@@ -1299,7 +1328,8 @@ function escapeHtml(str) {
 function debouncedFetchNexusTree() {
     if (nexusSearchTimer) clearTimeout(nexusSearchTimer);
     nexusSearchTimer = setTimeout(() => {
-        fetchNexusTree();
+        windowCache.clear();
+        loadWindow(0, null, true);
     }, 250);
 }
 
@@ -1308,19 +1338,109 @@ function fetchNexusTree() {
         clearTimeout(nexusSearchTimer);
         nexusSearchTimer = null;
     }
+    windowCache.clear();
+    loadWindow(0, null, true);
+}
+
+function attachNexusScrollListener() {
+    const container = document.getElementById('nexusTreeContainer');
+    if (!container || scrollListenerAttached) return;
+    container.addEventListener('scroll', onNexusContainerScroll, { passive: true });
+    scrollListenerAttached = true;
+}
+
+function onNexusContainerScroll() {
+    if (scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(() => {
+        scrollPending = false;
+        checkSlidingScroll();
+    });
+}
+
+function checkSlidingScroll() {
+    const container = document.getElementById('nexusTreeContainer');
+    if (!container || windowIsLoading || windowTotalCount <= WINDOW_SIZE) return;
+
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+
+    // 1. Scrolled near bottom -> shift window downwards
+    const distFromBottom = scrollHeight - (scrollTop + clientHeight);
+    if (distFromBottom <= TRIGGER_THRESHOLD) {
+        if ((windowCurrentOffset + windowRenderedCount) < windowTotalCount) {
+            let nextOffset = windowCurrentOffset + SHIFT_STEP;
+            if (nextOffset + WINDOW_SIZE > windowTotalCount) {
+                nextOffset = Math.max(0, windowTotalCount - WINDOW_SIZE);
+            }
+            if (nextOffset !== windowCurrentOffset) {
+                const anchor = findVisibleAnchor(container);
+                loadWindow(nextOffset, anchor, false);
+                return;
+            }
+        }
+    }
+
+    // 2. Scrolled near top -> shift window upwards
+    if (scrollTop <= TRIGGER_THRESHOLD && windowCurrentOffset > 0) {
+        let prevOffset = Math.max(0, windowCurrentOffset - SHIFT_STEP);
+        if (prevOffset !== windowCurrentOffset) {
+            const anchor = findVisibleAnchor(container);
+            loadWindow(prevOffset, anchor, false);
+            return;
+        }
+    }
+}
+
+function findVisibleAnchor(container) {
+    const items = container.querySelectorAll('.tree-artifact-item[data-artifact-key]');
+    if (!items || items.length === 0) return null;
+    const containerRect = container.getBoundingClientRect();
+    for (let i = 0; i < items.length; i++) {
+        const rect = items[i].getBoundingClientRect();
+        if (rect.bottom > containerRect.top + 5) {
+            return {
+                key: items[i].getAttribute('data-artifact-key'),
+                top: rect.top
+            };
+        }
+    }
+    return null;
+}
+
+function loadWindow(targetOffset, anchor, isInitial) {
     if (nexusAbortController) {
         nexusAbortController.abort();
     }
     nexusAbortController = new AbortController();
     const currentSeq = ++searchSeq;
+    windowIsLoading = true;
 
     const repo = document.getElementById('pickerRepoSelect').value;
     const group = (document.getElementById('pickerGroupInput').value || '').trim();
     const artifact = (document.getElementById('pickerArtifactInput').value || '').trim();
-    const container = document.getElementById('nexusTreeContainer');
-    container.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">' + iconSvg('loader', 'icon-spin') + ' ' + window.t('nexus.loading') + '</div>';
 
-    let url = '/api/v1/nexus/search?repo=' + encodeURIComponent(repo);
+    const container = document.getElementById('nexusTreeContainer');
+    const renderedEl = document.getElementById('nexusRenderedItems');
+    const countInfo = document.getElementById('pickerCountInfo');
+
+    const cacheKey = repo + '::' + group + '::' + artifact + '::' + targetOffset;
+    if (windowCache.has(cacheKey)) {
+        const cached = windowCache.get(cacheKey);
+        windowIsLoading = false;
+        applyWindowData(cached, targetOffset, repo, group, artifact, anchor, isInitial);
+        return;
+    }
+
+    if (isInitial && renderedEl) {
+        renderedEl.innerHTML = '<div style="color: var(--text-muted); padding: 12px; display: flex; align-items: center; gap: 8px;">' + iconSvg('loader', 'icon-spin') + ' ' + window.t('nexus.loading') + '</div>';
+        if (container) container.scrollTop = 0;
+    }
+
+    let url = '/api/v1/nexus/search?repo=' + encodeURIComponent(repo) +
+              '&offset=' + targetOffset +
+              '&limit=' + WINDOW_SIZE;
     if (group) url += '&group=' + encodeURIComponent(group);
     if (artifact) url += '&name=' + encodeURIComponent(artifact);
 
@@ -1336,46 +1456,129 @@ function fetchNexusTree() {
             }
             return r.json();
         })
-        .then(groups => {
+        .then(data => {
             if (currentSeq !== searchSeq) return;
-            if (!groups || groups.length === 0) {
-                const filterDesc = (group || artifact) ? (group + ' ' + artifact).trim() : '';
-                if (filterDesc) {
-                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">' + window.t('nexus.no_results', '<code>' + escapeHtml(filterDesc) + '</code>', '<code>' + escapeHtml(repo) + '</code>') + '</div>';
-                } else {
-                    container.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">' + window.t('nexus.no_results', '', '<code>' + escapeHtml(repo) + '</code>') + '</div>';
-                }
-                return;
+            windowIsLoading = false;
+            if (windowCache.size > 25) {
+                const oldest = windowCache.keys().next().value;
+                windowCache.delete(oldest);
             }
-
-            let html = '';
-            groups.forEach(g => {
-                html += '<div style="margin-bottom: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border-subtle); border-radius: var(--radius-xs); padding: 8px;">';
-                html += '<div class="tree-group-title">' + iconSvg('folder') + ' <strong>' + escapeHtml(g.group) + '</strong></div>';
-                g.artifacts.forEach(a => {
-                    html += '<div class="tree-artifact-item" style="padding-left: 12px; margin-top: 6px;">';
-                    html += '<div class="tree-artifact-title">' + iconSvg('package') + ' ' + escapeHtml(a.artifact_id) + '</div>';
-                    html += '<div class="tree-versions-list" style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; padding-left: 20px;">';
-                    a.versions.forEach(v => {
-                        html += '<span class="tree-version-badge" onclick="selectNexusArtifact(\'' + g.group + '\', \'' + a.artifact_id + '\', \'' + v + '\', \'' + repo + '\')">v' + escapeHtml(v) + '</span>';
-                    });
-                    html += '</div></div>';
-                });
-                html += '</div>';
-            });
-            container.innerHTML = html;
+            windowCache.set(cacheKey, data);
+            applyWindowData(data, targetOffset, repo, group, artifact, anchor, isInitial);
         })
         .catch(err => {
             if (err.name === 'AbortError') return;
             if (currentSeq !== searchSeq) return;
-            container.innerHTML = '<div style="color: #f87171; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-xs); font-size: 13px;">' +
-                '<div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">' + iconSvg('alert-triangle') + ' ' + window.t('nexus.unreachable') + '</div>' +
-                '<div style="margin-bottom: 8px;">' + escapeHtml(err.message) + '</div>' +
-                '<div style="font-size: 11px; color: var(--text-muted);">' +
-                'Prüfen Sie Basis-URL und Anmeldedaten unter <a href="/settings/system" target="_blank" style="color: var(--primary); text-decoration: underline;">Einstellungen &gt; System</a>' +
-                '</div>' +
-                '</div>';
+            windowIsLoading = false;
+            if (countInfo) countInfo.innerHTML = '';
+            if (renderedEl) {
+                renderedEl.innerHTML = '<div style="color: #f87171; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-xs); font-size: 13px;">' +
+                    '<div style="font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">' + iconSvg('alert-triangle') + ' ' + window.t('nexus.unreachable') + '</div>' +
+                    '<div style="margin-bottom: 8px;">' + escapeHtml(err.message) + '</div>' +
+                    '<div style="font-size: 11px; color: var(--text-muted);">' +
+                    'Prüfen Sie Basis-URL und Anmeldedaten unter <a href="/settings/system" target="_blank" style="color: var(--primary); text-decoration: underline;">Einstellungen &gt; System</a>' +
+                    '</div>' +
+                    '</div>';
+            }
         });
+}
+
+function countArtifactsInGroups(groups) {
+    if (!groups) return 0;
+    let count = 0;
+    for (let i = 0; i < groups.length; i++) {
+        if (groups[i].artifacts) count += groups[i].artifacts.length;
+    }
+    return count;
+}
+
+function applyWindowData(data, offset, repo, group, artifact, anchor, isInitial) {
+    const groups = Array.isArray(data) ? data : (data.groups || []);
+    const totalCount = (!Array.isArray(data) && typeof data.total_count === 'number') ? data.total_count : countArtifactsInGroups(groups);
+    windowTotalCount = totalCount;
+    windowCurrentOffset = offset;
+    windowRenderedCount = countArtifactsInGroups(groups);
+
+    const container = document.getElementById('nexusTreeContainer');
+    const renderedEl = document.getElementById('nexusRenderedItems');
+    const countInfo = document.getElementById('pickerCountInfo');
+
+    if (!groups || groups.length === 0) {
+        if (countInfo) countInfo.innerHTML = '';
+        const filterDesc = (group || artifact) ? (group + ' ' + artifact).trim() : '';
+        if (renderedEl) {
+            if (filterDesc) {
+                renderedEl.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">' + window.t('nexus.no_results', '<code>' + escapeHtml(filterDesc) + '</code>', '<code>' + escapeHtml(repo) + '</code>') + '</div>';
+            } else {
+                renderedEl.innerHTML = '<div style="color: var(--text-muted); padding: 16px; text-align: center;">' + window.t('nexus.no_results', '', '<code>' + escapeHtml(repo) + '</code>') + '</div>';
+            }
+        }
+        return;
+    }
+
+    if (renderedEl) {
+        renderedEl.innerHTML = renderGroupsHtml(groups, repo);
+    }
+
+    // Scroll compensation using anchor element
+    if (container) {
+        if (isInitial) {
+            container.scrollTop = 0;
+        } else if (anchor) {
+            const allItems = container.querySelectorAll('.tree-artifact-item[data-artifact-key]');
+            let newAnchorEl = null;
+            for (let i = 0; i < allItems.length; i++) {
+                if (allItems[i].getAttribute('data-artifact-key') === anchor.key) {
+                    newAnchorEl = allItems[i];
+                    break;
+                }
+            }
+            if (newAnchorEl) {
+                const newRect = newAnchorEl.getBoundingClientRect();
+                const delta = newRect.top - anchor.top;
+                container.scrollTop += delta;
+            }
+        }
+    }
+
+    // Update status bar info
+    if (countInfo) {
+        if (totalCount <= WINDOW_SIZE) {
+            countInfo.innerHTML = '<strong style="color: #fff;">' + totalCount.toLocaleString() + '</strong> ' + window.t('nexus.total_found', totalCount.toLocaleString());
+        } else {
+            const startIdx = offset + 1;
+            const endIdx = Math.min(totalCount, offset + windowRenderedCount);
+            countInfo.innerHTML = window.t('nexus.window_info',
+                '<strong>' + startIdx.toLocaleString() + '</strong>',
+                '<strong>' + endIdx.toLocaleString() + '</strong>',
+                '<strong style="color: #fff;">' + totalCount.toLocaleString() + '</strong>'
+            );
+        }
+    }
+}
+
+function renderGroupsHtml(groups, repo) {
+    let html = '';
+    groups.forEach(g => {
+        html += '<div style="margin-bottom: 8px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--surface-border-subtle); border-radius: var(--radius-xs); padding: 8px;">';
+        html += '<div class="tree-group-title">' + iconSvg('folder') + ' <strong>' + escapeHtml(g.group) + '</strong></div>';
+        if (g.artifacts) {
+            g.artifacts.forEach(a => {
+                const artifactKey = g.group + '::' + a.artifact_id;
+                html += '<div class="tree-artifact-item" data-artifact-key="' + escapeHtml(artifactKey) + '" style="padding-left: 12px; margin-top: 6px;">';
+                html += '<div class="tree-artifact-title">' + iconSvg('package') + ' ' + escapeHtml(a.artifact_id) + '</div>';
+                html += '<div class="tree-versions-list" style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; padding-left: 20px;">';
+                if (a.versions) {
+                    a.versions.forEach(v => {
+                        html += '<span class="tree-version-badge" data-group="' + escapeHtml(g.group) + '" data-artifact="' + escapeHtml(a.artifact_id) + '" data-version="' + escapeHtml(v) + '" data-repo="' + escapeHtml(repo) + '" onclick="selectNexusArtifact(this.dataset.group, this.dataset.artifact, this.dataset.version, this.dataset.repo)">v' + escapeHtml(v) + '</span>';
+                    });
+                }
+                html += '</div></div>';
+            });
+        }
+        html += '</div>';
+    });
+    return html;
 }
 
 function selectNexusArtifact(group, artifact, version, repo) {

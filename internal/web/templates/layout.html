@@ -211,7 +211,10 @@
             val = key;
         }
         if (args && args.length > 0) {
-            args.forEach(arg => {
+            args.forEach((arg, idx) => {
+                if (val.indexOf('{' + idx + '}') !== -1) {
+                    val = val.split('{' + idx + '}').join(arg);
+                }
                 val = val.replace(/%[sdv]/, arg);
             });
         }

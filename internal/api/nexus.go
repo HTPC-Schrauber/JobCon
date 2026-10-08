@@ -8,6 +8,7 @@ import (
 	"jobcon/internal/db"
 	"jobcon/internal/nexus"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -111,6 +112,53 @@ func (a *API) handleSearchNexus(w http.ResponseWriter, r *http.Request) {
 		if repo == "" && len(a.cfg.Nexus.Repositories) > 0 {
 			repo = a.cfg.Nexus.Repositories[0].ID
 		}
+	}
+
+	q := r.URL.Query()
+	isPaged := q.Has("page") || q.Has("page_size") || q.Has("limit") || q.Has("offset") || q.Get("paged") == "true"
+
+	if isPaged {
+		page := 1
+		if p := q.Get("page"); p != "" {
+			if v, err := strconv.Atoi(p); err == nil && v > 0 {
+				page = v
+			}
+		}
+		pageSize := 50
+		if ps := q.Get("page_size"); ps != "" {
+			if v, err := strconv.Atoi(ps); err == nil && v > 0 {
+				pageSize = v
+			}
+		} else if ps := q.Get("limit"); ps != "" {
+			if v, err := strconv.Atoi(ps); err == nil && v > 0 {
+				pageSize = v
+			}
+		}
+
+		offset := 0
+		if o := q.Get("offset"); o != "" {
+			if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+				offset = v
+			}
+		}
+
+		filter := db.NexusArtifactFilter{
+			Repository:  repo,
+			GroupFilter: group,
+			NameFilter:  name,
+			Query:       query,
+			Page:        page,
+			PageSize:    pageSize,
+			Offset:      offset,
+		}
+
+		res, err := a.db.SearchNexusArtifactsPaged(filter)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, "Nexus-Suche fehlgeschlagen: "+err.Error())
+			return
+		}
+		a.jsonResponse(w, http.StatusOK, res)
+		return
 	}
 
 	tree, err := a.db.SearchNexusArtifacts(repo, group, name, query)

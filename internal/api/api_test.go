@@ -577,3 +577,117 @@ func TestAPIBulkRunConcurrencyLimits(t *testing.T) {
 		t.Errorf("expected 400 Bad Request for concurrency > 100, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAPINexusSearchPaged(t *testing.T) {
+	_, mux, database, token := setupTestAPI(t)
+	defer database.Close()
+
+	comps := []db.SyncedComponent{
+		{Group: "de.firma.talend", Name: "crm_sync", Version: "1.0.0"},
+		{Group: "de.firma.talend", Name: "crm_sync", Version: "1.1.0"},
+		{Group: "de.firma.talend", Name: "sap_import", Version: "2.0.0"},
+		{Group: "com.firma.etl", Name: "invoice_flow", Version: "0.1.0"},
+	}
+	if err := database.ReplaceNexusArtifacts("releases", comps); err != nil {
+		t.Fatalf("ReplaceNexusArtifacts failed: %v", err)
+	}
+
+	// 1. Unpaged request (backwards compatible array)
+	req := httptest.NewRequest("GET", "/api/v1/nexus/search?repo=releases", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	var unpaged []db.GroupNode
+	if err := json.Unmarshal(rec.Body.Bytes(), &unpaged); err != nil {
+		t.Fatalf("failed to decode unpaged array: %v", err)
+	}
+	if len(unpaged) != 2 {
+		t.Errorf("expected 2 groups in unpaged result, got %d", len(unpaged))
+	}
+
+	// 2. Paged request: page 1, page_size 2
+	req = httptest.NewRequest("GET", "/api/v1/nexus/search?repo=releases&page=1&page_size=2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	var paged db.NexusArtifactPageResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &paged); err != nil {
+		t.Fatalf("failed to decode paged result: %v", err)
+	}
+	if paged.TotalCount != 3 {
+		t.Errorf("expected TotalCount 3, got %d", paged.TotalCount)
+	}
+	if paged.TotalPages != 2 {
+		t.Errorf("expected TotalPages 2, got %d", paged.TotalPages)
+	}
+	if paged.CurrentPage != 1 {
+		t.Errorf("expected CurrentPage 1, got %d", paged.CurrentPage)
+	}
+	if paged.PageSize != 2 {
+		t.Errorf("expected PageSize 2, got %d", paged.PageSize)
+	}
+	// Total artifacts on page 1 should be 2
+	artCount := 0
+	for _, g := range paged.Groups {
+		artCount += len(g.Artifacts)
+	}
+	if artCount != 2 {
+		t.Errorf("expected 2 artifacts on page 1, got %d", artCount)
+	}
+
+	// 3. Paged request: page 2, page_size 2
+	req = httptest.NewRequest("GET", "/api/v1/nexus/search?repo=releases&page=2&page_size=2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	var paged2 db.NexusArtifactPageResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &paged2); err != nil {
+		t.Fatalf("failed to decode paged2 result: %v", err)
+	}
+	if paged2.CurrentPage != 2 {
+		t.Errorf("expected CurrentPage 2, got %d", paged2.CurrentPage)
+	}
+	artCount2 := 0
+	for _, g := range paged2.Groups {
+		artCount2 += len(g.Artifacts)
+	}
+	if artCount2 != 1 {
+		t.Errorf("expected 1 artifact on page 2, got %d", artCount2)
+	}
+
+	// 4. Offset-based request: offset 1, limit 1 (sliding window)
+	req = httptest.NewRequest("GET", "/api/v1/nexus/search?repo=releases&offset=1&limit=1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec.Code)
+	}
+	var offsetRes db.NexusArtifactPageResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &offsetRes); err != nil {
+		t.Fatalf("failed to decode offsetRes result: %v", err)
+	}
+	if offsetRes.Offset != 1 {
+		t.Errorf("expected Offset 1, got %d", offsetRes.Offset)
+	}
+	if offsetRes.TotalCount != 3 {
+		t.Errorf("expected TotalCount 3, got %d", offsetRes.TotalCount)
+	}
+	artCountOffset := 0
+	for _, g := range offsetRes.Groups {
+		artCountOffset += len(g.Artifacts)
+	}
+	if artCountOffset != 1 {
+		t.Errorf("expected 1 artifact at offset 1, got %d", artCountOffset)
+	}
+}
+

@@ -578,8 +578,7 @@ input:focus, select:focus, textarea:focus {
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -675,8 +674,7 @@ input:focus, select:focus, textarea:focus {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.75);
   z-index: 1040;
 }
 .sidepanel-backdrop.open {
@@ -939,7 +937,7 @@ th.sortable:hover {
   position: sticky;
   top: 56px;
   z-index: 30;
-  backdrop-filter: blur(4px);
+  background: rgba(24, 24, 27, 0.98);
 }
 .bulk-toolbar-info {
   display: flex;

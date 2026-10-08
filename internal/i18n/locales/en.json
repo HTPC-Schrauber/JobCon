@@ -133,7 +133,9 @@
     "loading": "Loading artifacts from Nexus...",
     "empty_prompt": "Please enter a GroupId or ArtifactId to search Nexus.",
     "no_results": "No artifacts found for filter %s in repository %s.",
-    "unreachable": "Nexus unreachable"
+    "unreachable": "Nexus unreachable",
+    "total_found": "%s artifacts found",
+    "window_info": "Slice %s–%s of %s artifacts"
   },
   "executions": {
     "title": "Execution History",

@@ -133,7 +133,9 @@
     "loading": "Lade Artefakte aus Nexus...",
     "empty_prompt": "Bitte geben Sie eine GroupId oder ArtifactId ein, um Nexus zu durchsuchen.",
     "no_results": "Keine Artefakte für Filter %s im Repository %s gefunden.",
-    "unreachable": "Nexus nicht erreichbar"
+    "unreachable": "Nexus nicht erreichbar",
+    "total_found": "%s Artefakte gefunden",
+    "window_info": "Ausschnitt %s–%s von %s Artefakten"
   },
   "executions": {
     "title": "Ausführungshistorie",

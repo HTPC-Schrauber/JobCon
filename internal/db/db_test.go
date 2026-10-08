@@ -482,6 +482,71 @@ func TestNexusArtifactsCacheAndCounts(t *testing.T) {
 	if nodes[0].Artifacts[0].Versions[0] != "1.1.0" {
 		t.Errorf("expected newest version 1.1.0 first, got %s", nodes[0].Artifacts[0].Versions[0])
 	}
+
+	// Paged search: pageSize 1
+	pagedRes, err := database.SearchNexusArtifactsPaged(NexusArtifactFilter{
+		Repository: "releases",
+		Page:       1,
+		PageSize:   1,
+	})
+	if err != nil {
+		t.Fatalf("SearchNexusArtifactsPaged failed: %v", err)
+	}
+	// Total distinct artifacts: crm_sync, sap_customer_import (under de.firma.talend) and invoice_export (under com.opitzhome.jobs) = 3 artifacts
+	if pagedRes.TotalCount != 3 {
+		t.Errorf("expected TotalCount 3, got %d", pagedRes.TotalCount)
+	}
+	if pagedRes.TotalPages != 3 {
+		t.Errorf("expected TotalPages 3, got %d", pagedRes.TotalPages)
+	}
+	if pagedRes.CurrentPage != 1 {
+		t.Errorf("expected CurrentPage 1, got %d", pagedRes.CurrentPage)
+	}
+	if len(pagedRes.Groups) != 1 || len(pagedRes.Groups[0].Artifacts) != 1 {
+		t.Fatalf("expected 1 group with 1 artifact on page 1, got %+v", pagedRes.Groups)
+	}
+
+	// Paged search: page 2
+	pagedRes2, err := database.SearchNexusArtifactsPaged(NexusArtifactFilter{
+		Repository: "releases",
+		Page:       2,
+		PageSize:   1,
+	})
+	if err != nil {
+		t.Fatalf("SearchNexusArtifactsPaged page 2 failed: %v", err)
+	}
+	if pagedRes2.CurrentPage != 2 {
+		t.Errorf("expected CurrentPage 2, got %d", pagedRes2.CurrentPage)
+	}
+	if len(pagedRes2.Groups) != 1 || len(pagedRes2.Groups[0].Artifacts) != 1 {
+		t.Fatalf("expected 1 group with 1 artifact on page 2, got %+v", pagedRes2.Groups)
+	}
+	if pagedRes2.Groups[0].Artifacts[0].ArtifactID == pagedRes.Groups[0].Artifacts[0].ArtifactID {
+		t.Errorf("expected different artifact on page 2")
+	}
+
+	// Offset-based search: offset 1, pageSize 1 (sliding window)
+	offsetRes, err := database.SearchNexusArtifactsPaged(NexusArtifactFilter{
+		Repository: "releases",
+		Offset:     1,
+		PageSize:   1,
+	})
+	if err != nil {
+		t.Fatalf("SearchNexusArtifactsPaged with offset failed: %v", err)
+	}
+	if offsetRes.Offset != 1 {
+		t.Errorf("expected Offset 1, got %d", offsetRes.Offset)
+	}
+	if offsetRes.TotalCount != 3 {
+		t.Errorf("expected TotalCount 3, got %d", offsetRes.TotalCount)
+	}
+	if len(offsetRes.Groups) != 1 || len(offsetRes.Groups[0].Artifacts) != 1 {
+		t.Fatalf("expected 1 artifact at offset 1, got %+v", offsetRes.Groups)
+	}
+	if offsetRes.Groups[0].Artifacts[0].ArtifactID != pagedRes2.Groups[0].Artifacts[0].ArtifactID {
+		t.Errorf("expected same artifact as page 2, got %s vs %s",
+			offsetRes.Groups[0].Artifacts[0].ArtifactID, pagedRes2.Groups[0].Artifacts[0].ArtifactID)
+	}
 }
 
 func TestLocalAdminProtectionAndLDAPUsers(t *testing.T) {

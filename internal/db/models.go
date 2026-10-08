@@ -1088,6 +1088,25 @@ type GroupNode struct {
 	Artifacts []ArtifactNode `json:"artifacts"`
 }
 
+type NexusArtifactFilter struct {
+	Repository  string `json:"repository"`
+	GroupFilter string `json:"group_filter"`
+	NameFilter  string `json:"name_filter"`
+	Query       string `json:"query"`
+	Page        int    `json:"page"`
+	PageSize    int    `json:"page_size"`
+	Offset      int    `json:"offset"`
+}
+
+type NexusArtifactPageResult struct {
+	Groups      []GroupNode `json:"groups"`
+	TotalCount  int         `json:"total_count"`
+	TotalPages  int         `json:"total_pages"`
+	CurrentPage int         `json:"current_page"`
+	PageSize    int         `json:"page_size"`
+	Offset      int         `json:"offset"`
+}
+
 func (db *DB) ReplaceNexusArtifacts(repository string, components []SyncedComponent) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -1221,6 +1240,207 @@ func (db *DB) SearchNexusArtifacts(repository, groupFilter, nameFilter, query st
 	})
 
 	return groupNodes, rows.Err()
+}
+
+func (db *DB) SearchNexusArtifactsPaged(filter NexusArtifactFilter) (*NexusArtifactPageResult, error) {
+	whereClauses := []string{"1=1"}
+	var args []any
+
+	if filter.Repository != "" {
+		whereClauses = append(whereClauses, "repository = ?")
+		args = append(args, filter.Repository)
+	}
+
+	cleanGroup := strings.TrimSpace(filter.GroupFilter)
+	cleanGroup = strings.Trim(cleanGroup, "*? \t")
+	if cleanGroup != "" {
+		whereClauses = append(whereClauses, "group_id LIKE ?")
+		args = append(args, cleanGroup+"%")
+	}
+
+	cleanName := strings.TrimSpace(filter.NameFilter)
+	cleanName = strings.Trim(cleanName, "*? \t")
+	if cleanName != "" {
+		whereClauses = append(whereClauses, "artifact_id LIKE ?")
+		args = append(args, "%"+cleanName+"%")
+	}
+
+	cleanQuery := strings.TrimSpace(filter.Query)
+	cleanQuery = strings.Trim(cleanQuery, "*? \t")
+	if cleanQuery != "" {
+		whereClauses = append(whereClauses, "(group_id LIKE ? OR artifact_id LIKE ? OR version LIKE ?)")
+		term := "%" + cleanQuery + "%"
+		args = append(args, term, term, term)
+	}
+
+	whereSQL := strings.Join(whereClauses, " AND ")
+
+	countSQL := fmt.Sprintf(`
+		SELECT COUNT(*) FROM (
+			SELECT 1 FROM nexus_artifacts
+			WHERE %s
+			GROUP BY group_id, artifact_id
+		)`, whereSQL)
+
+	var totalCount int
+	if err := db.QueryRow(countSQL, args...).Scan(&totalCount); err != nil {
+		return nil, err
+	}
+
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 50
+	} else if pageSize > 200 {
+		pageSize = 200
+	}
+
+	totalPages := 0
+	if totalCount > 0 {
+		totalPages = (totalCount + pageSize - 1) / pageSize
+	}
+
+	page := filter.Page
+	offset := 0
+	if filter.Offset > 0 {
+		offset = filter.Offset
+		if offset >= totalCount && totalCount > 0 {
+			offset = totalCount - pageSize
+			if offset < 0 {
+				offset = 0
+			}
+		}
+		page = (offset / pageSize) + 1
+	} else {
+		if page <= 0 {
+			page = 1
+		} else if totalPages > 0 && page > totalPages {
+			page = totalPages
+		}
+		offset = (page - 1) * pageSize
+	}
+
+	if totalCount == 0 {
+		return &NexusArtifactPageResult{
+			Groups:      []GroupNode{},
+			TotalCount:  0,
+			TotalPages:  0,
+			CurrentPage: page,
+			PageSize:    pageSize,
+			Offset:      0,
+		}, nil
+	}
+
+	whereOuterClauses := make([]string, len(whereClauses))
+	for i, c := range whereClauses {
+		if c == "1=1" {
+			whereOuterClauses[i] = "1=1"
+		} else if strings.HasPrefix(c, "repository =") {
+			whereOuterClauses[i] = "n.repository = ?"
+		} else if strings.HasPrefix(c, "group_id LIKE") {
+			whereOuterClauses[i] = "n.group_id LIKE ?"
+		} else if strings.HasPrefix(c, "artifact_id LIKE") {
+			whereOuterClauses[i] = "n.artifact_id LIKE ?"
+		} else if strings.HasPrefix(c, "(group_id LIKE") {
+			whereOuterClauses[i] = "(n.group_id LIKE ? OR n.artifact_id LIKE ? OR n.version LIKE ?)"
+		} else {
+			whereOuterClauses[i] = "n." + c
+		}
+	}
+	whereOuterSQL := strings.Join(whereOuterClauses, " AND ")
+
+	pagedQuerySQL := fmt.Sprintf(`
+		WITH paged_artifacts AS (
+			SELECT repository, group_id, artifact_id
+			FROM nexus_artifacts
+			WHERE %s
+			GROUP BY repository, group_id, artifact_id
+			ORDER BY group_id ASC, artifact_id ASC
+			LIMIT ? OFFSET ?
+		)
+		SELECT n.group_id, n.artifact_id, n.version
+		FROM nexus_artifacts n
+		JOIN paged_artifacts p ON n.repository = p.repository AND n.group_id = p.group_id AND n.artifact_id = p.artifact_id
+		WHERE %s
+		ORDER BY n.group_id ASC, n.artifact_id ASC, n.version DESC`,
+		whereSQL, whereOuterSQL)
+
+	var queryArgs []any
+	queryArgs = append(queryArgs, args...)
+	queryArgs = append(queryArgs, pageSize, offset)
+	queryArgs = append(queryArgs, args...)
+
+	rows, err := db.Query(pagedQuerySQL, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	treeMap := make(map[string]map[string]map[string]struct{})
+	var groupOrder []string
+	var artOrder = make(map[string][]string)
+
+	for rows.Next() {
+		var g, a, v string
+		if err := rows.Scan(&g, &a, &v); err != nil {
+			return nil, err
+		}
+		if g == "" {
+			g = "default"
+		}
+		if a == "" {
+			continue
+		}
+		if _, exists := treeMap[g]; !exists {
+			treeMap[g] = make(map[string]map[string]struct{})
+			groupOrder = append(groupOrder, g)
+		}
+		if _, exists := treeMap[g][a]; !exists {
+			treeMap[g][a] = make(map[string]struct{})
+			artOrder[g] = append(artOrder[g], a)
+		}
+		if v != "" {
+			treeMap[g][a][v] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var groupNodes []GroupNode
+	for _, g := range groupOrder {
+		var artifacts []ArtifactNode
+		for _, a := range artOrder[g] {
+			var versions []string
+			for v := range treeMap[g][a] {
+				versions = append(versions, v)
+			}
+			sort.Slice(versions, func(i, j int) bool {
+				return versions[i] > versions[j]
+			})
+			artifacts = append(artifacts, ArtifactNode{
+				ArtifactID: a,
+				Group:      g,
+				Versions:   versions,
+			})
+		}
+		groupNodes = append(groupNodes, GroupNode{
+			Group:     g,
+			Artifacts: artifacts,
+		})
+	}
+
+	if groupNodes == nil {
+		groupNodes = []GroupNode{}
+	}
+
+	return &NexusArtifactPageResult{
+		Groups:      groupNodes,
+		TotalCount:  totalCount,
+		TotalPages:  totalPages,
+		CurrentPage: page,
+		PageSize:    pageSize,
+		Offset:      offset,
+	}, nil
 }
 
 func (db *DB) GetNexusArtifactCount() (int, error) {
